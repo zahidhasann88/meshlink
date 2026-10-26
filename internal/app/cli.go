@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -33,6 +34,7 @@ Usage (flags precede positional arguments):
   meshlink message send [--socket PATH] PEER_ID TEXT
   meshlink message request [--socket PATH] PEER_ID TEXT
   meshlink diagnostics [--socket PATH] [--json]
+  meshlink version
 
 Each command accepts --help. node start runs in foreground until SIGINT/SIGTERM
 (Ctrl+C) or node stop. Control uses a local Unix domain socket (also on Windows),
@@ -78,6 +80,10 @@ func readConfig(path string) (m.Config, error) {
 func Run(ctx context.Context, args []string, out, errout io.Writer) error {
 	if len(args) == 0 || args[0] == "--help" || args[0] == "help" {
 		fmt.Fprint(out, Help)
+		return nil
+	}
+	if args[0] == "version" || args[0] == "--version" {
+		fmt.Fprintln(out, "meshlink", version())
 		return nil
 	}
 	group := args[0]
@@ -314,4 +320,16 @@ func call(ctx context.Context, path string, c command) (reply, error) {
 		return res, errors.New(res.Error)
 	}
 	return res, nil
+}
+
+var Version = ""
+
+func version() string {
+	if Version != "" {
+		return Version
+	}
+	if bi, ok := debug.ReadBuildInfo(); ok && bi.Main.Version != "" && bi.Main.Version != "(devel)" {
+		return bi.Main.Version
+	}
+	return "dev"
 }

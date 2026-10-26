@@ -8,7 +8,7 @@ Each node has its own cryptographic identity. Nodes only talk to peers you have
 explicitly allowed, and every connection is encrypted with TLS 1.3. You can use
 MeshLink as a Go library or through the `meshlink` command-line tool.
 
-> **Status:** early development (v0.1). It works and is well tested, but it has not
+> **Status:** early development (v0.1.0). It works and is well tested, but it has not
 > had a security audit. Don't rely on it for anything critical yet.
 
 ## Features
@@ -24,10 +24,15 @@ MeshLink as a Go library or through the `meshlink` command-line tool.
 
 ## Install
 
-You need **Go 1.27 or newer**.
+**Download a binary** for Linux, macOS or Windows from the
+[latest release](https://github.com/zahidhasann88/meshlink/releases/latest),
+unzip it, and put `meshlink` on your `PATH`.
+
+**Or install with Go** (1.27 or newer):
 
 ```sh
 go install github.com/zahidhasann88/meshlink/cmd/meshlink@latest
+go install github.com/zahidhasann88/meshlink/cmd/meshlink-registry@latest   # optional
 ```
 
 Or build from source:
@@ -126,6 +131,7 @@ meshlink node stop --socket "$PWD/local/a.sock"
 | `message send ID TEXT` | Send a one-way message |
 | `message request ID TEXT` | Send a request and print the reply |
 | `diagnostics` | Show node status and counters |
+| `version` | Print the installed version |
 
 Tips:
 

@@ -8,3 +8,4 @@ deployments/compose/data/
 *.token
 *.zip
 build-docs.txt
+dist/

@@ -74,3 +74,10 @@ func TestActualControlSocket(t *testing.T) {
 		t.Fatal("shutdown operation did not invoke stop")
 	}
 }
+
+func TestCLIVersion(t *testing.T) {
+	var out bytes.Buffer
+	if e := Run(context.Background(), []string{"version"}, &out, &out); e != nil || out.String() != "meshlink dev\n" {
+		t.Fatal(out.String(), e)
+	}
+}

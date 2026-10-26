@@ -16,6 +16,12 @@ jobs:
       - run: make check
       - run: make test-fuzz
       - run: make vuln
+  docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - run: make docker-smoke
   windows:
     # Windows has no cgo toolchain by default, so the race detector runs on Linux only.
     runs-on: windows-latest

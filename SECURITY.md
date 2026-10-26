@@ -23,9 +23,9 @@ Go standard library). It has **not** had an external security audit.
 - Saved keys are created readable only by you (`chmod 600`), and existing files
   are never overwritten. On Linux/macOS, MeshLink refuses to load a key that
   others can read.
-- **Windows:** Go can't read Windows file permissions, so this check is skipped.
-  Keep keys inside your user folder, which only you and administrators can read
-  by default.
+- **Windows:** keys are created with an access list that allows only you. Loading
+  a key or registry token fails if anyone besides you, SYSTEM or Administrators
+  has access.
 - Keys are stored unencrypted. Use disk encryption if you need protection at rest.
 - Private keys and message contents are never logged or sent to peers.
 
@@ -68,6 +68,8 @@ cannot be recovered; create a new one.
 | Too many connections | Limits on connections and handshakes, plus timeouts |
 | Slow or flooding peers | Bounded queues; an overloaded peer is disconnected |
 | Unauthorized registry use | Token required; rate and size limits |
+| Reading or changing relayed traffic | Peers run end-to-end TLS through the relay |
+| Unauthorized relay use | Relay allowlist; circuit limits in total and per peer |
 
 ### What it does NOT protect against
 
@@ -80,6 +82,8 @@ cannot be recovered; create a new one.
   to the wrong address.
 - **Local users with your account (or admin/root).** They can control your node
   through its control socket.
+- **The relay operator seeing metadata.** A relay can't read messages, but it sees
+  which peers talk, when, and how much. It can also refuse or drop traffic.
 - **Custom transports.** These run inside your process and must do their own
   encryption and authentication.
 

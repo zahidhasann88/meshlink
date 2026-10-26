@@ -125,7 +125,6 @@ func TestKnownPeersValidation(t *testing.T) {
 	other := ids[1].ID()
 	for name, c := range map[string]m.Config{
 		"not allowed":    {KnownPeers: []m.KnownPeer{{ID: other, Address: "127.0.0.1:1"}}},
-		"no address":     {AllowedPeers: []string{other}, KnownPeers: []m.KnownPeer{{ID: other}}},
 		"duplicate":      {AllowedPeers: []string{other}, KnownPeers: []m.KnownPeer{{ID: other, Address: "a:1"}, {ID: other, Address: "b:1"}}},
 		"bad reconnect":  {Reconnect: m.RetryPolicy{Attempts: 1000}},
 		"inverted delay": {Reconnect: m.RetryPolicy{InitialDelay: time.Minute, MaxDelay: time.Second}},
@@ -136,5 +135,8 @@ func TestKnownPeersValidation(t *testing.T) {
 	}
 	if e := m.ValidateConfig(m.Config{AllowedPeers: []string{other}, KnownPeers: []m.KnownPeer{{ID: other, Address: "127.0.0.1:7002"}}}); e != nil {
 		t.Fatal(e)
+	}
+	if _, e := m.NewNode(m.Config{AllowedPeers: []string{other}, KnownPeers: []m.KnownPeer{{ID: other}}}); e == nil {
+		t.Fatal("accepted a known peer without address, registry or relay")
 	}
 }

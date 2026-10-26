@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/zahidhasann88/meshlink/internal/discovery"
 	"github.com/zahidhasann88/meshlink/internal/identity"
 	"github.com/zahidhasann88/meshlink/internal/transport"
 	"github.com/zahidhasann88/meshlink/internal/transport/tcp"
@@ -21,6 +22,9 @@ type Config struct {
 	AllowedPeers   []string            `json:"allowed_peers"`
 	KnownPeers     []KnownPeer         `json:"known_peers,omitempty"`
 	Reconnect      RetryPolicy         `json:"reconnect"`
+	Registry       *RegistryConfig     `json:"registry,omitempty"`
+	Discovery      discovery.Discovery `json:"-"`
+	Relay          *RelayConfig        `json:"relay,omitempty"`
 	MaxPeers       int                 `json:"max_peers"`
 	MaxHandshakes  int                 `json:"max_handshakes"`
 	MaxFrameSize   int                 `json:"max_frame_size"`
@@ -38,7 +42,19 @@ type Config struct {
 
 type KnownPeer struct {
 	ID      string `json:"id"`
+	Address string `json:"address,omitempty"`
+}
+
+type RegistryConfig struct {
+	URL              string        `json:"url"`
+	TokenFile        string        `json:"token_file"`
+	AdvertiseAddress string        `json:"advertise_address,omitempty"`
+	Lease            time.Duration `json:"lease,omitempty"`
+}
+
+type RelayConfig struct {
 	Address string `json:"address"`
+	ID      string `json:"id"`
 }
 
 func (c Config) normalized() (Config, error) {
@@ -57,14 +73,35 @@ func (c Config) normalized() (Config, error) {
 		switch {
 		case !allowed[p.ID]:
 			return c, fmt.Errorf("known peer %q must also be in allowed_peers", p.ID)
-		case p.Address == "":
-			return c, fmt.Errorf("known peer %q needs an address", p.ID)
 		case seen[p.ID]:
 			return c, fmt.Errorf("known peer %q is listed twice", p.ID)
 		}
 		seen[p.ID] = true
 	}
 	c.KnownPeers = append([]KnownPeer(nil), c.KnownPeers...)
+	if c.Registry != nil && c.Discovery != nil {
+		return c, errors.New("configure registry or Discovery, not both")
+	}
+	if r := c.Registry; r != nil {
+		rc := *r
+		if rc.URL == "" || rc.TokenFile == "" {
+			return c, errors.New("registry needs url and token_file")
+		}
+		if rc.Lease == 0 {
+			rc.Lease = time.Minute
+		}
+		if rc.Lease < 3*time.Second || rc.Lease > 24*time.Hour {
+			return c, errors.New("registry lease must be between 3s and 24h")
+		}
+		c.Registry = &rc
+	}
+	if r := c.Relay; r != nil {
+		if !identity.ValidID(r.ID) || r.Address == "" {
+			return c, errors.New("relay needs a valid id and an address")
+		}
+		rc := *r
+		c.Relay = &rc
+	}
 	c.Reconnect = c.Reconnect.withDefaults()
 	if e := c.Reconnect.validate(); e != nil {
 		return c, fmt.Errorf("reconnect: %w", e)

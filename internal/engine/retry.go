@@ -108,6 +108,9 @@ func (n *Node) Maintain(address, id string, p RetryPolicy) (stop func(), err err
 	if !identity.ValidID(id) || !n.creds.AllowedPeers[id] {
 		return nil, fmt.Errorf("%w: peer not in allowed peers", tcp.ErrAuthentication)
 	}
+	if address == "" && n.discovery == nil && n.cfg.Relay == nil {
+		return nil, errNoRoute
+	}
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	return n.maintainLocked(address, id, p)
@@ -151,7 +154,7 @@ func (n *Node) maintain(ctx context.Context, m *maintainer, id string, p RetryPo
 		s := n.current(id)
 		if s == nil {
 			var e error
-			s, e = n.connect(ctx, m.address, id)
+			s, e = n.reach(ctx, m.address, id)
 			if errors.Is(e, ErrDuplicate) {
 				if s, e = n.current(id), nil; s == nil {
 					e = ErrNotConnected

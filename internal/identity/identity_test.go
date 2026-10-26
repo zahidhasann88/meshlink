@@ -38,7 +38,7 @@ func TestRoundTrip(t *testing.T) {
 	if e != nil || d.ID() != a.ID() {
 		t.Fatal(e)
 	}
-	if fsperm.Enforced {
+	if fsperm.POSIX {
 		os.Chmod(path, 0644)
 		if _, e = Load(path); e == nil {
 			t.Fatal("accepted unsafe mode")

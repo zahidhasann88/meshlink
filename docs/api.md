@@ -145,14 +145,33 @@ A registry stores `peerID → address` so nodes can find each other.
 
 ```go
 reg, _ := meshlink.NewRegistryClient("https://registry.example.com", token)
-node.Register(ctx, reg, "203.0.113.5:7001", time.Minute)   // call again to renew
+stop, _ := node.KeepRegistered(reg, "203.0.113.5:7001", time.Minute) // renews automatically
 node.DiscoverAndConnect(ctx, reg, peerID)
 ```
 
+- `KeepRegistered` renews every lease/3 and removes the entry when stopped or on `Close`.
+- Or set `Config.Discovery` (Go) or `Config.Registry` (file-based token). Then
+  `KnownPeers` entries without an `Address` are looked up automatically.
 - Use `NewMemoryRegistry(capacity)` for an in-process registry.
 - The registry only gives you an address. The peer still has to pass the normal
   identity check.
-- See [deployment](deployment.md) to run the registry server.
+- `Diagnostics().Registration` is `"active"` or `"failing"`.
+
+## Relay (optional)
+
+```go
+via := &meshlink.RelayConfig{Address: "relay.example.com:7100", ID: relayID}
+node, _ := meshlink.NewNode(meshlink.Config{ /* ... */ Relay: via})
+```
+
+- The node keeps a reservation with the relay, so peers can reach it through the relay.
+- `KnownPeers` fall back to the relay when a direct connection fails.
+- `node.ConnectViaRelay(ctx, peerID)` connects through the relay explicitly.
+- `PeerInfo.Relay` is set for relayed connections, and `Diagnostics().Relay` is
+  `"reserved"`, `"connecting"` or `"rejected"`.
+
+Run a relay in Go with `meshlink.NewRelayServer(meshlink.RelayServerConfig{...})`,
+or use the `meshlink-relay` command.
 
 ## Custom transports
 

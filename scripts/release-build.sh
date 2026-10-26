@@ -10,7 +10,7 @@ for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 wi
 	[ "$os" = windows ] && ext=".exe"
 	name="meshlink_${tag#v}_${os}_${arch}"
 	mkdir -p "dist/$name"
-	for cmd in meshlink meshlink-registry; do
+	for cmd in meshlink meshlink-registry meshlink-relay; do
 		CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build -trimpath -ldflags "$ldflags" -o "dist/$name/$cmd$ext" "./cmd/$cmd"
 	done
 	cp README.md LICENSE "dist/$name/"

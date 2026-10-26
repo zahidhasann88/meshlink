@@ -18,6 +18,5 @@ if ((go env CGO_ENABLED) -eq '1') {
 } else {
     Write-Host '==> go test -race SKIPPED (CGO_ENABLED=0; install a C toolchain to enable)'
 }
-Step 'build meshlink' { go build -trimpath -o bin/meshlink.exe ./cmd/meshlink }
-Step 'build registry' { go build -trimpath -o bin/meshlink-registry.exe ./cmd/meshlink-registry }
+Step 'build' { go build -trimpath -o bin/ ./cmd/... }
 Write-Host 'all checks passed'

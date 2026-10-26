@@ -29,7 +29,9 @@ Anything you leave out uses its default. A full example is in
 | `listen_address` | `127.0.0.1:0` | Address to listen on. Port `0` means any free port |
 | `allowed_peers` | `[]` | Peer IDs allowed to connect. **Empty means nobody** |
 | `known_peers` | `[]` | Peers to connect to automatically and reconnect after drops (see below) |
-| `reconnect` | see below | Retry policy for `known_peers` |
+| `reconnect` | see below | Retry policy for `known_peers` and the relay reservation |
+| `registry` | none | Registry to look up peers and register with (see below) |
+| `relay` | none | Relay to stay reachable through (see below) |
 | `max_peers` | 64 | Maximum connections, including ones still connecting (1–65536) |
 | `max_handshakes` | 8 | Maximum connections being set up at the same time (1–1024) |
 | `max_frame_size` | 1048576 (1 MiB) | Largest message on the wire, in bytes (128 B–16 MiB) |
@@ -75,12 +77,42 @@ connection drops, or the peer isn't running yet, the node keeps retrying.
 Rules:
 
 - Each known peer must also be in `allowed_peers`.
+- `address` is optional when a `registry` or `relay` is configured.
 - Two peers can list each other. Only one connection is kept.
 - A connection that drops within `max(max_delay, 1s)` of connecting counts as a
   failure. This stops tight retry loops when the other side doesn't allow you.
 - Authentication failures stop retrying immediately.
 - When the node gives up, `meshlink diagnostics` shows the reason under `last error`.
 - Messages that were in flight during a drop are **not** resent.
+
+## Registry
+
+```json
+"registry": {
+  "url": "https://registry.example.com",
+  "token_file": "registry.token",
+  "advertise_address": "203.0.113.5:7001",
+  "lease": 60000000000
+}
+```
+
+| Field | Default | Meaning |
+|---|---|---|
+| `url` | required | Registry server URL. Must be HTTPS unless it's a loopback IP |
+| `token_file` | required | File holding the registry token. It must be private to you |
+| `advertise_address` | none | If set, the node registers here and renews automatically |
+| `lease` | 1m | How long a registration lasts (3s–24h). Renewed every lease/3 |
+
+Without `advertise_address`, the node only looks peers up.
+
+## Relay
+
+```json
+"relay": { "address": "relay.example.com:7100", "id": "<relay's peer ID>" }
+```
+
+The node keeps a reservation with this relay, and uses it when a direct
+connection to a known peer fails. The relay's ID is pinned like any peer's.
 
 ## CLI: environment variables and flags
 
@@ -125,3 +157,25 @@ Built-in limits:
 - 100 requests per second in total
 - 128 open connections
 - 4 KiB request bodies
+
+## Relay server
+
+`meshlink-relay` options:
+
+| Flag | Env variable | Default | Meaning |
+|---|---|---|---|
+| `--key` | `MESHLINK_RELAY_KEY` | **required** | Relay identity, created with `meshlink identity create` |
+| `--allow` | `MESHLINK_RELAY_ALLOW` | **required** | Comma-separated peer IDs that may use the relay |
+| `--listen` | `MESHLINK_RELAY_LISTEN` | `127.0.0.1:7100` | Address to listen on |
+| `--max-circuits` | | 256 | Relayed connections in total |
+| `--max-per-peer` | | 16 | Relayed connections per peer |
+| `--idle-timeout` | | 2m | Close relayed connections idle this long |
+
+## Private files
+
+Key files and registry token files must be readable only by you:
+
+- **Linux/macOS:** `chmod 600 FILE`.
+- **Windows:** only you, SYSTEM and Administrators may have access.
+  `meshlink identity create` sets this automatically. For other files, run
+  `icacls FILE /inheritance:r /grant:r "%USERNAME%:F"`.

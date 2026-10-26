@@ -7,6 +7,7 @@ import (
 	"github.com/zahidhasann88/meshlink/internal/engine"
 	"github.com/zahidhasann88/meshlink/internal/identity"
 	"github.com/zahidhasann88/meshlink/internal/protocol"
+	"github.com/zahidhasann88/meshlink/internal/relay"
 	"github.com/zahidhasann88/meshlink/internal/transport"
 	"github.com/zahidhasann88/meshlink/internal/transport/tcp"
 )
@@ -37,6 +38,21 @@ type RetryPolicy = engine.RetryPolicy
 
 // KnownPeer is a peer a node connects to automatically and keeps connected.
 type KnownPeer = engine.KnownPeer
+
+// RegistryConfig makes a node use, and optionally register with, a registry server.
+type RegistryConfig = engine.RegistryConfig
+
+// RelayConfig is the relay a node stays reachable through and falls back to.
+type RelayConfig = engine.RelayConfig
+
+// RelayServer forwards end-to-end encrypted traffic between allowed peers.
+type RelayServer = relay.Server
+
+// RelayServerConfig configures a RelayServer. Zero values select defaults.
+type RelayServerConfig = relay.Config
+
+// RelayStats is a snapshot of a RelayServer's activity.
+type RelayStats = relay.Stats
 
 // Transport is the extension point for custom secure stream transports.
 type Transport = transport.Transport
@@ -106,6 +122,9 @@ func ParseConfig(b []byte) (Config, error) { return engine.ParseConfig(b) }
 
 // NewMemoryRegistry creates an in-process registry holding at most capacity peers.
 func NewMemoryRegistry(capacity int) (*MemoryRegistry, error) { return discovery.NewMemory(capacity) }
+
+// NewRelayServer creates a relay. Call Start to begin listening.
+func NewRelayServer(c RelayServerConfig) (*RelayServer, error) { return relay.NewServer(c) }
 
 // NewRegistryClient creates a client for a meshlink-registry server. The
 // endpoint must use HTTPS unless it is a numeric loopback address.

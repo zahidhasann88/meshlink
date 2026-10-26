@@ -6,6 +6,22 @@ contain breaking changes.
 
 ## [Unreleased]
 
+### Added
+
+- Relay: `meshlink-relay` server and `relay` config. Nodes behind NAT stay reachable
+  through a relay that only forwards end-to-end encrypted traffic. Known peers fall
+  back to the relay when a direct connection fails.
+- Registry: `registry` config section. Nodes register and renew their address
+  automatically (`Node.KeepRegistered`), and known peers can be listed by ID alone.
+- Windows: key files are created private to the current user, and key and token
+  files that other users can read are rejected.
+- Docker image includes all three binaries, with an end-to-end smoke test in CI.
+- Weekly fuzzing in CI, and published benchmarks.
+
+### Changed
+
+- Now depends on `golang.org/x/sys` for Windows file permissions.
+
 ## [v0.1.0] - 2026-10-26
 
 First public release.

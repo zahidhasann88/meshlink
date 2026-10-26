@@ -27,9 +27,10 @@
 | `internal/protocol` | Message format and framing |
 | `internal/identity` | Keys and peer IDs |
 | `internal/discovery` | Registry (in-memory store, HTTP server and client) |
+| `internal/relay` | Relay server and its control messages |
 | `internal/app` | The CLI and its local control socket |
 | `internal/fsperm`, `internal/limits` | Small helpers for file permissions and connection limits |
-| `cmd/meshlink`, `cmd/meshlink-registry` | The two executables |
+| `cmd/meshlink`, `cmd/meshlink-registry`, `cmd/meshlink-relay` | The executables |
 
 ## Life of a message
 
@@ -52,6 +53,31 @@ that sends faster than you can handle is disconnected instead of filling memory.
 `Close()` stops the listener, closes all connections, fails any waiting requests,
 and waits for every goroutine to finish. Calling it again just waits for the
 first call to complete.
+
+## How a node reaches a peer
+
+For each known peer, the node tries in order:
+
+1. The peer's **address** from `known_peers`, if given.
+2. Otherwise, the address from the **registry**, if configured.
+3. If that fails (and it wasn't an authentication error), the **relay**, if configured.
+
+## Relay
+
+```
+ node A ──TLS──▶ relay ◀──TLS── node B
+   └────── end-to-end TLS inside ──────┘
+```
+
+1. B keeps a **reservation** open with the relay so it can be reached.
+2. A asks the relay to connect it to B. The relay tells B over the reservation.
+3. B opens a second connection to the relay and accepts. The relay then joins the
+   two connections and copies bytes between them.
+4. A and B run their normal mutual TLS **inside** that pipe. The relay never has
+   their keys, so it cannot read or change messages.
+
+Both A and B must be on the relay's allowlist, and B still checks A against its own
+`allowed_peers`. The relay limits circuits in total and per peer.
 
 ## Duplicate connections
 
@@ -77,5 +103,5 @@ against `creds.AllowedPeers`. Returning an unverified ID would break all securit
 [`examples/custom-transport`](../examples/custom-transport/main.go) shows how to
 wrap the TCP transport safely.
 
-Not available yet: WebSocket, QUIC, UDP and WebRTC transports, relays, and NAT
-traversal.
+Not available yet: WebSocket, QUIC, UDP and WebRTC transports, NAT hole punching,
+and multi-hop routing.

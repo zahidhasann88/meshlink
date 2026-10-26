@@ -2,5 +2,8 @@
 .cache
 .config
 bin
+dist
+local
 *.key
 *.pem
+*.token

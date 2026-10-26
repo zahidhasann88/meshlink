@@ -30,16 +30,9 @@ func run() error {
 	if *tokenFile == "" {
 		return errors.New("--token-file is required")
 	}
-	st, e := os.Stat(*tokenFile)
+	b, e := fsperm.ReadPrivate(*tokenFile, 4096)
 	if e != nil {
-		return e
-	}
-	if e = fsperm.PrivateFile(st); e != nil || st.Size() > 4096 {
-		return fmt.Errorf("token file must be an owner-only regular file, at most 4096 bytes (%v)", e)
-	}
-	b, e := os.ReadFile(*tokenFile)
-	if e != nil {
-		return e
+		return fmt.Errorf("token file: %w", e)
 	}
 	host, _, e := net.SplitHostPort(*address)
 	if e != nil {

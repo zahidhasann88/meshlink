@@ -58,3 +58,23 @@ Each message on the connection is sent as one frame:
   unknown replies are ignored.
 - There are no acknowledgements, retries or duplicate detection. Requests could
   run twice if the application sends them twice.
+
+## 4. Relay control messages
+
+A relay speaks the same framing (section 2), with JSON control messages of at most
+1024 bytes over mutual TLS 1.3. Peers authenticate the relay by its pinned peer ID,
+and the relay only accepts peers on its allowlist.
+
+| Message | Direction | Meaning |
+|---|---|---|
+| `{"type":"reserve"}` | peer → relay | Keep this connection open so others can reach me |
+| `{"type":"ping"}` / `{"type":"pong"}` | peer ↔ relay | Keep a reservation alive (every 20s; dropped after 60s of silence) |
+| `{"type":"connect","target":ID}` | peer → relay | Connect me to peer ID |
+| `{"type":"incoming","from":ID,"circuit":C}` | relay → target | Peer ID wants to connect |
+| `{"type":"accept","circuit":C}` | target → relay | On a **new** connection: accept circuit C |
+| `{"type":"ok"}` | relay → peer | Request accepted |
+| `{"type":"error","error":"..."}` | relay → peer | Request refused |
+
+`C` is 32 lowercase hex characters. After both sides receive `ok`, the relay copies
+raw bytes between the two connections. The peers then start a normal MeshLink
+connection (sections 1–3) inside them, so the relay only sees encrypted data.

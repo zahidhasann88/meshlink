@@ -89,6 +89,9 @@ func (i *Identity) Save(path string) error {
 			os.Remove(path)
 		}
 	}()
+	if e = fsperm.Restrict(path); e != nil {
+		return fmt.Errorf("restrict key file permissions: %w", e)
+	}
 	if _, e = f.Write(b); e != nil {
 		return e
 	}
@@ -102,24 +105,9 @@ func (i *Identity) Save(path string) error {
 	return nil
 }
 func Load(path string) (*Identity, error) {
-	f, e := os.Open(path)
+	b, e := fsperm.ReadPrivate(path, 4096)
 	if e != nil {
-		return nil, e
-	}
-	defer f.Close()
-	s, e := f.Stat()
-	if e != nil {
-		return nil, e
-	}
-	if e = fsperm.PrivateFile(s); e != nil {
-		return nil, fmt.Errorf("identity %s must be an owner-only regular file (chmod 600): %w", path, e)
-	}
-	if s.Size() > 4096 {
-		return nil, errors.New("identity file too large")
-	}
-	b := make([]byte, s.Size())
-	if _, e = f.ReadAt(b, 0); e != nil {
-		return nil, e
+		return nil, fmt.Errorf("identity: %w", e)
 	}
 	return Parse(b)
 }

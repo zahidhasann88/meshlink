@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/zahidhasann88/meshlink/internal/discovery"
 	"github.com/zahidhasann88/meshlink/internal/identity"
 	"github.com/zahidhasann88/meshlink/internal/protocol"
 	"github.com/zahidhasann88/meshlink/internal/transport"
@@ -46,6 +47,7 @@ type PeerInfo struct {
 	BytesSent     uint64    `json:"bytes_sent"`
 	BytesReceived uint64    `json:"bytes_received"`
 	QueueDepth    int       `json:"queue_depth"`
+	Relay         string    `json:"relay,omitempty"`
 }
 
 type Diagnostics struct {
@@ -62,6 +64,8 @@ type Diagnostics struct {
 	RejectedConnections uint64        `json:"rejected_connections"`
 	DroppedEvents       uint64        `json:"dropped_events"`
 	MaintainedPeers     []string      `json:"maintained_peers,omitempty"`
+	Registration        string        `json:"registration,omitempty"`
+	Relay               string        `json:"relay,omitempty"`
 	LastError           string        `json:"last_error,omitempty"`
 }
 type result struct {
@@ -86,6 +90,7 @@ type session struct {
 	id                  string
 	conn                transport.Conn
 	outbound            bool
+	relay               string
 	ctx                 context.Context
 	cancel              context.CancelFunc
 	queue               chan job
@@ -109,6 +114,8 @@ type Node struct {
 	raw                                                  map[net.Conn]struct{}
 	pending                                              map[string]pending
 	maintained                                           map[string]*maintainer
+	discovery                                            discovery.Discovery
+	registration, relayState                             string
 	handler                                              Handler
 	lastError                                            string
 	slots, handshakes                                    chan struct{}
@@ -144,8 +151,27 @@ func NewNode(c Config) (*Node, error) {
 	for _, id := range c.AllowedPeers {
 		allowed[id] = true
 	}
+	if c.Relay != nil && c.Relay.ID == c.Identity.ID() {
+		return nil, errors.New("relay ID must differ from this node's ID")
+	}
+	d := c.Discovery
+	if c.Registry != nil {
+		if d, e = newRegistryClient(*c.Registry); e != nil {
+			return nil, fmt.Errorf("registry: %w", e)
+		}
+		if a := c.Registry.AdvertiseAddress; a != "" {
+			if e = discovery.Validate(discovery.Record{ID: c.Identity.ID(), Address: a}); e != nil {
+				return nil, fmt.Errorf("registry advertise_address: %w", e)
+			}
+		}
+	}
+	for _, p := range c.KnownPeers {
+		if p.Address == "" && d == nil && c.Relay == nil {
+			return nil, fmt.Errorf("known peer %q needs an address, a registry or a relay", p.ID)
+		}
+	}
 	c.AllowedPeers = append([]string(nil), c.AllowedPeers...)
-	return &Node{cfg: c, creds: transport.Credentials{Identity: c.Identity, AllowedPeers: allowed}, state: "new", peers: map[string]*session{}, raw: map[net.Conn]struct{}{}, pending: map[string]pending{}, maintained: map[string]*maintainer{}, slots: make(chan struct{}, c.MaxPeers), handshakes: make(chan struct{}, c.MaxHandshakes), work: make(chan delivery, c.HandlerQueue), events: make(chan Event, 128), done: make(chan struct{})}, nil
+	return &Node{discovery: d, cfg: c, creds: transport.Credentials{Identity: c.Identity, AllowedPeers: allowed}, state: "new", peers: map[string]*session{}, raw: map[net.Conn]struct{}{}, pending: map[string]pending{}, maintained: map[string]*maintainer{}, slots: make(chan struct{}, c.MaxPeers), handshakes: make(chan struct{}, c.MaxHandshakes), work: make(chan delivery, c.HandlerQueue), events: make(chan Event, 128), done: make(chan struct{})}, nil
 }
 
 func (n *Node) ID() string { return n.cfg.Identity.ID() }
@@ -195,6 +221,14 @@ func (n *Node) Start(ctx context.Context) error {
 	go n.accept()
 	for i := 0; i < n.cfg.Workers; i++ {
 		go n.worker()
+	}
+	if r := n.cfg.Registry; r != nil && r.AdvertiseAddress != "" {
+		n.keepRegisteredLocked(n.discovery, r.AdvertiseAddress, r.Lease)
+	}
+	if n.cfg.Relay != nil {
+		n.relayState = "connecting"
+		n.wg.Add(1)
+		go n.reserveRelay(n.ctx)
 	}
 	for _, p := range n.cfg.KnownPeers {
 		if _, e := n.maintainLocked(p.Address, p.ID, n.cfg.Reconnect); e != nil {
@@ -263,7 +297,7 @@ func (n *Node) accept() {
 		}
 		go func() {
 			defer n.wg.Done()
-			_, e := n.establish(n.ctx, raw, "", false)
+			_, e := n.establish(n.ctx, raw, "", false, "")
 			if e != nil {
 				n.note(e)
 				n.rejected.Add(1)
@@ -278,10 +312,21 @@ func (n *Node) Connect(ctx context.Context, address, expected string) error {
 }
 
 func (n *Node) connect(ctx context.Context, address, expected string) (*session, error) {
-	if !identity.ValidID(expected) {
-		return nil, errors.New("expected peer ID is required")
+	return n.dialAndEstablish(ctx, expected, "", func(ctx context.Context) (net.Conn, error) {
+		raw, e := n.cfg.Transport.Dial(ctx, address)
+		if e != nil {
+			return nil, fmt.Errorf("dial: %w", e)
+		}
+		return raw, nil
+	})
+}
+
+func (n *Node) dialAndEstablish(ctx context.Context, expected, via string, dial func(context.Context) (net.Conn, error)) (*session, error) {
+	out := expected != ""
+	if out && !identity.ValidID(expected) {
+		return nil, errors.New("expected peer ID is invalid")
 	}
-	if !n.creds.AllowedPeers[expected] {
+	if out && !n.creds.AllowedPeers[expected] {
 		return nil, fmt.Errorf("%w: expected identity not authorized", tcp.ErrAuthentication)
 	}
 	n.mu.Lock()
@@ -297,12 +342,12 @@ func (n *Node) connect(ctx context.Context, address, expected string) (*session,
 	defer cancel()
 	stop := context.AfterFunc(base, cancel)
 	defer stop()
-	raw, e := n.cfg.Transport.Dial(dialCtx, address)
+	raw, e := dial(dialCtx)
 	if e != nil {
 		<-n.handshakes
 		<-n.slots
 		n.note(e)
-		return nil, fmt.Errorf("dial: %w", e)
+		return nil, e
 	}
 	n.mu.Lock()
 	if n.state != "running" {
@@ -314,14 +359,14 @@ func (n *Node) connect(ctx context.Context, address, expected string) (*session,
 	}
 	n.raw[raw] = struct{}{}
 	n.mu.Unlock()
-	s, e := n.establish(dialCtx, raw, expected, true)
+	s, e := n.establish(dialCtx, raw, expected, out, via)
 	if e != nil {
 		n.note(e)
 	}
 	return s, e
 }
 
-func (n *Node) establish(ctx context.Context, raw net.Conn, expected string, out bool) (*session, error) {
+func (n *Node) establish(ctx context.Context, raw net.Conn, expected string, out bool, via string) (*session, error) {
 	success := false
 	defer func() {
 		<-n.handshakes
@@ -355,7 +400,7 @@ func (n *Node) establish(ctx context.Context, raw net.Conn, expected string, out
 		return nil, ErrDuplicate
 	}
 	sessionCtx, sessionCancel := context.WithCancel(n.ctx)
-	s := &session{n: n, id: id, conn: c, outbound: out, ctx: sessionCtx, cancel: sessionCancel, queue: make(chan job, n.cfg.QueueCapacity), since: time.Now()}
+	s := &session{n: n, id: id, conn: c, outbound: out, relay: via, ctx: sessionCtx, cancel: sessionCancel, queue: make(chan job, n.cfg.QueueCapacity), since: time.Now()}
 	n.peers[id] = s
 	n.wg.Add(2)
 	n.emit(id, "connected")
@@ -675,7 +720,7 @@ func (n *Node) Peers() []PeerInfo { n.mu.Lock(); defer n.mu.Unlock(); return n.p
 func (n *Node) peersLocked() []PeerInfo {
 	out := make([]PeerInfo, 0, len(n.peers))
 	for _, s := range n.peers {
-		out = append(out, PeerInfo{ID: s.id, Address: s.conn.RemoteAddr().String(), State: "connected", ConnectedAt: s.since, LastRead: timeValue(s.lastRead.Load()), LastWrite: timeValue(s.lastWrite.Load()), BytesSent: s.sent.Load(), BytesReceived: s.received.Load(), QueueDepth: len(s.queue)})
+		out = append(out, PeerInfo{ID: s.id, Address: s.conn.RemoteAddr().String(), State: "connected", ConnectedAt: s.since, LastRead: timeValue(s.lastRead.Load()), LastWrite: timeValue(s.lastWrite.Load()), BytesSent: s.sent.Load(), BytesReceived: s.received.Load(), QueueDepth: len(s.queue), Relay: s.relay})
 	}
 	return out
 }
@@ -687,7 +732,7 @@ func (n *Node) Diagnostics() Diagnostics {
 	if !n.started.IsZero() {
 		uptime = time.Since(n.started)
 	}
-	return Diagnostics{ID: n.ID(), State: n.state, Transport: n.cfg.Transport.Name(), Address: n.address, Uptime: uptime, Peers: n.peersLocked(), BytesSent: n.sent.Load(), BytesReceived: n.received.Load(), RequestTimeouts: n.timeouts.Load(), ReconnectAttempts: n.retries.Load(), RejectedConnections: n.rejected.Load(), DroppedEvents: n.dropped.Load(), MaintainedPeers: n.maintainedLocked(), LastError: n.lastError}
+	return Diagnostics{ID: n.ID(), State: n.state, Transport: n.cfg.Transport.Name(), Address: n.address, Uptime: uptime, Peers: n.peersLocked(), BytesSent: n.sent.Load(), BytesReceived: n.received.Load(), RequestTimeouts: n.timeouts.Load(), ReconnectAttempts: n.retries.Load(), RejectedConnections: n.rejected.Load(), DroppedEvents: n.dropped.Load(), MaintainedPeers: n.maintainedLocked(), Registration: n.registration, Relay: n.relayState, LastError: n.lastError}
 }
 
 func (n *Node) maintainedLocked() []string {

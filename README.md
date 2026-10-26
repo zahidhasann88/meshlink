@@ -1,6 +1,8 @@
 # MeshLink
 
 [![Go checks](https://github.com/zahidhasann88/meshlink/actions/workflows/ci.yml/badge.svg)](https://github.com/zahidhasann88/meshlink/actions/workflows/ci.yml)
+[![Go Reference](https://pkg.go.dev/badge/github.com/zahidhasann88/meshlink.svg)](https://pkg.go.dev/github.com/zahidhasann88/meshlink/pkg/meshlink)
+[![Latest release](https://img.shields.io/github/v/release/zahidhasann88/meshlink)](https://github.com/zahidhasann88/meshlink/releases/latest)
 
 **MeshLink lets Go programs talk to each other securely, peer to peer.**
 
@@ -17,10 +19,11 @@ MeshLink as a Go library or through the `meshlink` command-line tool.
 - **Messaging:** one-way messages, broadcast, and request/response with timeouts.
 - **Auto-reconnect:** keeps known peers connected, with backoff, across drops and restarts.
 - **Safe limits:** bounded queues, connection limits and message size limits.
-- **Optional discovery:** a small registry server to look up peer addresses.
+- **Find peers by ID:** an optional registry server; nodes register and renew automatically.
+- **Relay:** reach peers behind NAT through a relay that only forwards encrypted traffic.
 - **Diagnostics:** connected peers, bytes sent and received, errors and more.
 - **CLI included:** runs on Linux, macOS and Windows 10+.
-- **No dependencies:** uses only the Go standard library.
+- **Minimal dependencies:** only the Go standard library and `golang.org/x/sys`.
 
 ## Install
 
@@ -33,6 +36,7 @@ unzip it, and put `meshlink` on your `PATH`.
 ```sh
 go install github.com/zahidhasann88/meshlink/cmd/meshlink@latest
 go install github.com/zahidhasann88/meshlink/cmd/meshlink-registry@latest   # optional
+go install github.com/zahidhasann88/meshlink/cmd/meshlink-relay@latest      # optional
 ```
 
 Or build from source:
@@ -193,7 +197,9 @@ Run the full example with `go run ./examples/messaging`. See the
   Use `Request` when you need a reply.
 - **Binding `127.0.0.1`** keeps a node local to your machine. **`0.0.0.0`** opens
   it on your network, so use a firewall.
-- **Not built yet:** relay servers, NAT traversal, and transports other than TCP.
+- **Behind NAT?** Use a [relay](docs/deployment.md#relay-server-optional). MeshLink
+  does not punch through NAT by itself.
+- **Not built yet:** transports other than TCP, and multi-hop routing.
 
 ## Documentation
 
@@ -205,6 +211,7 @@ Run the full example with `go run ./examples/messaging`. See the
 | [Security](SECURITY.md) | Reporting issues, how identity and trust work, known limits |
 | [Architecture](docs/architecture.md) | How the engine works inside, custom transports |
 | [Protocol](docs/protocol.md) | Wire format, for building compatible clients |
+| [Benchmarks](docs/benchmarks.md) | Measured latency and throughput |
 
 ## Development
 
@@ -213,6 +220,7 @@ go test ./...            # all tests, including real network tests
 make check               # format, vet, tests, race detector, build (Linux/macOS)
 ./scripts/check.ps1      # same checks on Windows
 make test-fuzz           # short fuzz runs
+make docker-smoke        # build the image and test 4 containers end to end
 ```
 
 Found a security problem? Please see [SECURITY.md](SECURITY.md) instead of

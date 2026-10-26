@@ -13,13 +13,13 @@ MeshLink as a Go library or through the `meshlink` command-line tool.
 
 ## Features
 
-- 🔐 **Secure by default:** mutual TLS 1.3 with Ed25519 keys. Unknown peers are rejected.
-- 💬 **Messaging:** one-way messages, broadcast, and request/response with timeouts.
-- 🛡️ **Safe limits:** bounded queues, connection limits and message size limits.
-- 🔎 **Optional discovery:** a small registry server to look up peer addresses.
-- 📊 **Diagnostics:** connected peers, bytes sent and received, errors and more.
-- 🖥️ **CLI included:** runs on Linux, macOS and Windows 10+.
-- 📦 **No dependencies:** uses only the Go standard library.
+- **Secure by default:** mutual TLS 1.3 with Ed25519 keys. Unknown peers are rejected.
+- **Messaging:** one-way messages, broadcast, and request/response with timeouts.
+- **Safe limits:** bounded queues, connection limits and message size limits.
+- **Optional discovery:** a small registry server to look up peer addresses.
+- **Diagnostics:** connected peers, bytes sent and received, errors and more.
+- **CLI included:** runs on Linux, macOS and Windows 10+.
+- **No dependencies:** uses only the Go standard library.
 
 ## Install
 

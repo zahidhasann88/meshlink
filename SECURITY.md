@@ -68,6 +68,8 @@ cannot be recovered; create a new one.
 | Too many connections | Limits on connections and handshakes, plus timeouts |
 | Slow or flooding peers | Bounded queues; an overloaded peer is disconnected |
 | Unauthorized registry use | Token required; rate and size limits |
+| Forged or changed registry entries | Each entry is signed by the peer's own key and checked on lookup |
+| Replayed registry entries | Registry rejects stale, out-of-order and old (> 5 min) signatures |
 | Reading or changing relayed traffic | Peers run end-to-end TLS through the relay |
 | Unauthorized relay use | Relay allowlist; circuit limits in total and per peer |
 
@@ -77,9 +79,9 @@ cannot be recovered; create a new one.
 - **Replayed requests.** A trusted peer can send the same request twice. Make
   important operations safe to repeat.
 - **A malicious trusted peer.** Allowed peers can still use CPU and bandwidth.
-- **The registry operator.** Anyone with the registry token can change any entry.
-  Identity checks still stop impersonation, but a bad entry can make you connect
-  to the wrong address.
+- **The registry operator hiding peers.** Entries are signed by each peer, so the
+  registry can't forge or change an address. It can still refuse to store entries,
+  hide them, or return a peer's older signed address (up to 24 hours old).
 - **Local users with your account (or admin/root).** They can control your node
   through its control socket.
 - **The relay operator seeing metadata.** A relay can't read messages, but it sees

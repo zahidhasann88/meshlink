@@ -92,7 +92,20 @@ func TestIndependentCLIProcesses(t *testing.T) {
 	if got := run("message", "request", "--socket", sockets[0], ids[1].ID(), "across independent processes"); got != "across independent processes" {
 		t.Fatal(got)
 	}
+	listener := exec.CommandContext(ctx, bin, "message", "listen", "--socket", sockets[1], "--json")
+	listenOut, _ := listener.StdoutPipe()
+	listenErr, _ := listener.StderrPipe()
+	if e := listener.Start(); e != nil {
+		t.Fatal(e)
+	}
+	if line, _ := bufio.NewReader(listenErr).ReadString('\n'); !strings.Contains(line, "listening") {
+		t.Fatalf("listener did not start: %q", line)
+	}
 	run("message", "send", "--socket", sockets[0], ids[1].ID(), "one-way")
+	received, e := bufio.NewReader(listenOut).ReadString('\n')
+	if e != nil || !strings.Contains(received, ids[0].ID()) || !strings.Contains(received, `"b25lLXdheQ=="`) {
+		t.Fatalf("listener output %q: %v", received, e)
+	}
 	if got := run("diagnostics", "--socket", sockets[0], "--json"); !strings.Contains(got, `"tcp+tls"`) {
 		t.Fatal(got)
 	}
@@ -102,6 +115,9 @@ func TestIndependentCLIProcesses(t *testing.T) {
 		run("node", "stop", "--socket", sockets[1])
 	} else if e := procs[1].Process.Signal(os.Interrupt); e != nil {
 		t.Fatal(e)
+	}
+	if e := listener.Wait(); e != nil {
+		t.Errorf("listener did not exit cleanly when the node stopped: %v", e)
 	}
 	for i, cmd := range procs {
 		if e := cmd.Wait(); e != nil {

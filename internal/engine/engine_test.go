@@ -125,3 +125,20 @@ func TestCloseDuringListen(t *testing.T) {
 		t.Fatal(e)
 	}
 }
+
+func TestPongMeasuresRTT(t *testing.T) {
+	s := &session{pingID: "a", pingAt: time.Now().Add(-5 * time.Millisecond)}
+	s.pong("other")
+	if s.rtt.Load() != 0 {
+		t.Fatal("unmatched pong recorded an RTT")
+	}
+	s.pong("a")
+	if rtt := time.Duration(s.rtt.Load()); rtt < 5*time.Millisecond {
+		t.Fatal("RTT not measured:", rtt)
+	}
+	s.rtt.Store(0)
+	s.pong("a")
+	if s.rtt.Load() != 0 {
+		t.Fatal("duplicate pong recorded an RTT")
+	}
+}

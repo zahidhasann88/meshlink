@@ -1,7 +1,7 @@
 GO ?= go
 EXE := $(shell $(GO) env GOEXE)
 FUZZTIME ?= 3s
-FUZZ_TARGETS := protocol:FuzzFrame protocol:FuzzProtocol identity:FuzzIdentity engine:FuzzConfig relay:FuzzRelayMessage
+FUZZ_TARGETS := protocol:FuzzFrame protocol:FuzzProtocol identity:FuzzIdentity engine:FuzzConfig relay:FuzzRelayMessage discovery:FuzzRecordVerify
 .PHONY: fmt fmt-check vet test test-race test-integration test-fuzz build bench vuln docker-smoke check
 fmt:
 	gofmt -w .

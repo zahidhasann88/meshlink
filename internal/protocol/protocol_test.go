@@ -20,8 +20,21 @@ func TestFixture(t *testing.T) {
 		t.Fatal(string(b), e)
 	}
 }
+func TestPingRequiresV2(t *testing.T) {
+	for _, typ := range []string{"ping", "pong"} {
+		m := Message{Version: 2, Type: typ, ID: "00000000000000000000000000000001"}
+		b, e := Encode(m, 1024)
+		if e != nil {
+			t.Fatal(e)
+		}
+		if got, e := Decode(b); e != nil || got.Type != typ {
+			t.Fatal(got, e)
+		}
+	}
+}
+
 func TestMalformed(t *testing.T) {
-	for _, s := range []string{`{}`, `null`, fixture + ` {}`, `{"version":2,"type":"request","id":"00000000000000000000000000000001"}`, `{"version":1,"version":1}`, `{"version":1,"type":"wrong","id":"00000000000000000000000000000001"}`, `{"x":1}`, `{"id":"bad"}`} {
+	for _, s := range []string{`{}`, `null`, fixture + ` {}`, `{"version":3,"type":"request","id":"00000000000000000000000000000001"}`, `{"version":1,"type":"ping","id":"00000000000000000000000000000001"}`, `{"version":2,"type":"ping","id":"00000000000000000000000000000001","payload":"eA=="}`, `{"version":1,"version":1}`, `{"version":1,"type":"wrong","id":"00000000000000000000000000000001"}`, `{"x":1}`, `{"id":"bad"}`} {
 		if _, e := Decode([]byte(s)); e == nil {
 			t.Errorf("accepted %s", s)
 		}

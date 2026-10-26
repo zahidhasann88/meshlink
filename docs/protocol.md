@@ -1,10 +1,11 @@
-# Wire protocol (v1)
+# Wire protocol (v2, compatible with v1)
 
 This page is for anyone building a compatible client. You don't need it to use MeshLink.
 
 ## 1. Secure connection
 
-- TCP with **mutual TLS 1.3** and ALPN protocol name `meshlink/1`
+- TCP with **mutual TLS 1.3**. Peers offer ALPN `meshlink/2` and `meshlink/1`, and use
+  the highest version both support. v0.1 and v0.2 nodes only speak `meshlink/1`.
 - Each side presents one self-signed **Ed25519** certificate
 - Peer ID = lowercase hex SHA-256 of the raw 32-byte Ed25519 public key
 - The receiving side verifies the peer ID against its allowlist
@@ -34,8 +35,8 @@ Each message on the connection is sent as one frame:
 
 | Field | Required | Value |
 |---|---|---|
-| `version` | yes | `1` |
-| `type` | yes | `data`, `request`, `response` or `error` |
+| `version` | yes | The negotiated version: `1` or `2`. Any other value closes the connection |
+| `type` | yes | `data`, `request`, `response`, `error`, and on v2 also `ping` and `pong` |
 | `id` | yes | 32 lowercase hex characters (random, 128-bit) |
 | `payload` | no | Bytes, base64-encoded |
 | `error` | only for `error` | Always `"handler_failed"` |
@@ -48,6 +49,8 @@ Each message on the connection is sent as one frame:
 | `request` | Asking for a reply | `response` or `error` with the **same id** |
 | `response` | Handler succeeded | n/a |
 | `error` | Handler failed (no payload, no details) | n/a |
+| `ping` | v2 only. Keepalive, sent every `idle_timeout / 3` | `pong` with the **same id** |
+| `pong` | v2 only. Answer to a ping (no payload) | n/a |
 
 ### Rules
 

@@ -12,16 +12,18 @@ MeshLink as a Go library or through the `meshlink` command-line tool.
 
 ![Two MeshLink peers connecting and exchanging a request](docs/demo.gif)
 
-> **Status:** early development (v0.2.0). It works and is well tested, but it has not
+> **Status:** early development (v0.3.0). It works and is well tested, but it has not
 > had a security audit. Don't rely on it for anything critical yet.
 
 ## Features
 
 - **Secure by default:** mutual TLS 1.3 with Ed25519 keys. Unknown peers are rejected.
 - **Messaging:** one-way messages, broadcast, and request/response with timeouts.
-- **Auto-reconnect:** keeps known peers connected, with backoff, across drops and restarts.
+- **Stays connected:** keepalive holds quiet connections open; known peers reconnect
+  with backoff after drops and restarts.
 - **Safe limits:** bounded queues, connection limits and message size limits.
-- **Find peers by ID:** an optional registry server; nodes register and renew automatically.
+- **Find peers by ID:** an optional registry server. Entries are signed by each peer,
+  so nobody else can change them.
 - **Relay:** reach peers behind NAT through a relay that only forwards encrypted traffic.
 - **Diagnostics:** connected peers, bytes sent and received, errors and more.
 - **CLI included:** runs on Linux, macOS and Windows 10+.
@@ -136,6 +138,7 @@ meshlink node stop --socket "$PWD/local/a.sock"
 | `peer disconnect ID` | Disconnect a peer |
 | `message send ID TEXT` | Send a one-way message |
 | `message request ID TEXT` | Send a request and print the reply |
+| `message listen` | Print one-way messages the node receives (`--json` for scripts) |
 | `diagnostics` | Show node status and counters |
 | `version` | Print the installed version |
 

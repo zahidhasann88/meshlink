@@ -51,17 +51,17 @@ func (n *Node) keepRegisteredLocked(d discovery.Discovery, address string, lease
 	}
 	ctx, cancel := context.WithCancel(n.ctx)
 	n.wg.Add(1)
-	go n.keepRegistered(ctx, d, discovery.Record{ID: n.ID(), Address: address}, lease)
+	go n.keepRegistered(ctx, d, address, lease)
 	return cancel, nil
 }
 
-func (n *Node) keepRegistered(ctx context.Context, d discovery.Discovery, r discovery.Record, lease time.Duration) {
+func (n *Node) keepRegistered(ctx context.Context, d discovery.Discovery, address string, lease time.Duration) {
 	defer n.wg.Done()
 	renew := lease / 3
 	retry := min(time.Second, renew)
 	for {
 		rctx, cancel := context.WithTimeout(ctx, min(10*time.Second, renew))
-		e := d.Register(rctx, r, lease)
+		e := n.Register(rctx, d, address, lease)
 		cancel()
 		if ctx.Err() != nil {
 			break
@@ -82,7 +82,7 @@ func (n *Node) keepRegistered(ctx context.Context, d discovery.Discovery, r disc
 	n.setState(&n.registration, "")
 	uctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	d.Unregister(uctx, r.ID)
+	n.Unregister(uctx, d)
 }
 
 func (n *Node) setState(field *string, v string) {
@@ -95,10 +95,10 @@ func (n *Node) reach(ctx context.Context, address, id string) (*session, error) 
 	e := errNoRoute
 	if address == "" && n.discovery != nil {
 		lctx, cancel := context.WithTimeout(ctx, n.cfg.ConnectTimeout)
-		r, le := n.discovery.Lookup(lctx, id)
+		found, le := n.lookup(lctx, n.discovery, id)
 		cancel()
 		if le == nil {
-			address = r.Address
+			address = found
 		} else {
 			e = fmt.Errorf("registry lookup: %w", le)
 		}

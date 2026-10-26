@@ -44,6 +44,8 @@ func ValidID(s string) bool {
 	b, e := hex.DecodeString(s)
 	return e == nil && len(b) == 32 && s == hex.EncodeToString(b)
 }
+func (i *Identity) Sign(msg []byte) []byte { return ed25519.Sign(i.key, msg) }
+
 func (i *Identity) MarshalPEM() ([]byte, error) {
 	if !i.Valid() {
 		return nil, errors.New("invalid identity")

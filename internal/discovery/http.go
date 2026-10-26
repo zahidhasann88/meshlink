@@ -20,8 +20,27 @@ import (
 )
 
 type registration struct {
-	Address string        `json:"address"`
-	Lease   time.Duration `json:"lease_ns"`
+	Address   string        `json:"address,omitempty"`
+	Lease     time.Duration `json:"lease_ns,omitempty"`
+	PublicKey []byte        `json:"public_key"`
+	IssuedAt  time.Time     `json:"issued_at"`
+	Signature []byte        `json:"signature"`
+}
+
+func (b registration) record(id string) Record {
+	return Record{ID: id, Address: b.Address, PublicKey: b.PublicKey, IssuedAt: b.IssuedAt, Signature: b.Signature}
+}
+
+func statusFor(e error) int {
+	switch {
+	case errors.Is(e, ErrSignature):
+		return 403
+	case errors.Is(e, ErrStale):
+		return 409
+	case errors.Is(e, ErrCapacity):
+		return 503
+	}
+	return 400
 }
 
 func decode(r io.Reader, v any) error {
@@ -96,19 +115,23 @@ func NewHandler(store Discovery, token string) (http.Handler, error) {
 				http.Error(w, "invalid JSON", 400)
 				return
 			}
-			e := store.Register(r.Context(), Record{ID: id, Address: body.Address}, body.Lease)
-			if e != nil {
-				code := 400
-				if errors.Is(e, ErrCapacity) {
-					code = 503
-				}
-				http.Error(w, e.Error(), code)
+			if body.Address == "" {
+				http.Error(w, "registration needs an address", 400)
+				return
+			}
+			if e := store.Register(r.Context(), body.record(id), body.Lease); e != nil {
+				http.Error(w, e.Error(), statusFor(e))
 				return
 			}
 			w.WriteHeader(204)
 		case "DELETE":
-			if e := store.Unregister(r.Context(), id); e != nil {
-				http.Error(w, "unregister failed", 500)
+			var body registration
+			if e := decode(r.Body, &body); e != nil || body.Address != "" || body.Lease != 0 {
+				http.Error(w, "invalid JSON", 400)
+				return
+			}
+			if e := store.Unregister(r.Context(), body.record(id)); e != nil {
+				http.Error(w, e.Error(), statusFor(e))
 				return
 			}
 			w.WriteHeader(204)
@@ -175,10 +198,10 @@ func (c *Client) do(ctx context.Context, method, id string, body any, out any) e
 	return nil
 }
 func (c *Client) Register(ctx context.Context, r Record, lease time.Duration) error {
-	if e := Validate(r); e != nil {
+	if e := r.Verify(); e != nil {
 		return e
 	}
-	return c.do(ctx, "PUT", r.ID, registration{r.Address, lease}, nil)
+	return c.do(ctx, "PUT", r.ID, registration{r.Address, lease, r.PublicKey, r.IssuedAt, r.Signature}, nil)
 }
 func (c *Client) Lookup(ctx context.Context, id string) (Record, error) {
 	var r Record
@@ -186,10 +209,7 @@ func (c *Client) Lookup(ctx context.Context, id string) (Record, error) {
 	if e != nil {
 		return r, e
 	}
-	if r.ID != id {
-		return r, errors.New("registry returned a different ID")
-	}
-	if e = Validate(r); e != nil {
+	if e = r.CheckLookup(id, time.Now()); e != nil {
 		return r, e
 	}
 	if !time.Now().Before(r.ExpiresAt) {
@@ -197,6 +217,9 @@ func (c *Client) Lookup(ctx context.Context, id string) (Record, error) {
 	}
 	return r, nil
 }
-func (c *Client) Unregister(ctx context.Context, id string) error {
-	return c.do(ctx, "DELETE", id, nil, nil)
+func (c *Client) Unregister(ctx context.Context, r Record) error {
+	if e := r.Verify(); e != nil {
+		return e
+	}
+	return c.do(ctx, "DELETE", r.ID, registration{PublicKey: r.PublicKey, IssuedAt: r.IssuedAt, Signature: r.Signature}, nil)
 }

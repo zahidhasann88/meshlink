@@ -75,10 +75,31 @@ Every request needs the header `Authorization: Bearer <token>`.
 
 | Request | Body / response |
 |---|---|
-| `PUT /v1/peers/{id}` | Body: `{"address":"host:port","lease_ns":60000000000}`. Returns 204 |
+| `PUT /v1/peers/{id}` | Body: a signed registration (below) plus `lease_ns`. Returns 204, or 403 for a bad signature and 409 for a stale one |
 | `GET /v1/peers/{id}` | Returns `{"id":...,"address":...,"expires_at":...}`, or 404 if missing |
-| `DELETE /v1/peers/{id}` | Returns 204 |
+| `DELETE /v1/peers/{id}` | Body: a signed removal (`public_key`, `issued_at`, `signature`). Returns 204 |
 | `GET /healthz`, `GET /readyz` | No token needed. Returns `{"status":"ok"}` |
+
+Registrations are signed by the peer itself. The signature is Ed25519 over:
+
+```
+meshlink-registry-v1\n<id>\n<address>\n<issued_at as Unix nanoseconds>
+```
+
+A removal uses the same format with an empty address. The registry rejects
+signatures more than 5 minutes off its clock, and anything not newer than what it
+already has.
+
+**Upgrading from v0.2:** registries and nodes must both run v0.3.0, because v0.2
+nodes send unsigned registrations.
+
+## Receiving messages from the CLI
+
+`meshlink message listen` prints one-way messages that a running node receives,
+until you press Ctrl+C. Add `--json` for one JSON object per line, for scripts.
+Requests still go to `--echo`, or fail without it. Up to 4 listeners can run at
+once, and a listener that falls far behind loses messages rather than slowing
+the node.
 
 ## Relay server (optional)
 

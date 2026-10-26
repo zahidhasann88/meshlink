@@ -15,8 +15,11 @@ import (
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	m "github.com/zahidhasann88/meshlink/pkg/meshlink"
 )
@@ -33,6 +36,7 @@ Usage (flags precede positional arguments):
   meshlink peer disconnect [--socket PATH] ID
   meshlink message send [--socket PATH] PEER_ID TEXT
   meshlink message request [--socket PATH] PEER_ID TEXT
+  meshlink message listen [--socket PATH] [--json]
   meshlink diagnostics [--socket PATH] [--json]
   meshlink version
 
@@ -41,6 +45,7 @@ Each command accepts --help. node start runs in foreground until SIGINT/SIGTERM
 never a TCP API. The default socket is MESHLINK_SOCKET or a per-user path.
 Both peers must authorize each other's IDs in their config. --echo explicitly
 installs a request echo handler. Without it requests return handler_failed.
+message listen prints one-way messages the node receives until Ctrl+C.
 Exit status: 0 success/help; 1 operational or usage error.
 `
 
@@ -194,13 +199,21 @@ func Run(ctx context.Context, args []string, out, errout io.Writer) error {
 		defer n.Close()
 		ctx, stop := context.WithCancel(ctx)
 		defer stop()
-		if *echo {
-			n.Handle(func(_ context.Context, _ string, p []byte) ([]byte, error) { return p, nil })
-		}
+		box := newInbox()
+		n.Handle(func(ctx context.Context, from string, p []byte) ([]byte, error) {
+			if !m.IsRequest(ctx) {
+				box.publish(from, p)
+				return nil, nil
+			}
+			if *echo {
+				return p, nil
+			}
+			return nil, errors.New("no request handler")
+		})
 		if e = n.Start(ctx); e != nil {
 			return e
 		}
-		srv, ln, e := control(n, *socket, stop)
+		srv, ln, e := control(n, *socket, stop, box, ctx.Done())
 		if e != nil {
 			return e
 		}
@@ -248,6 +261,9 @@ func Run(ctx context.Context, args []string, out, errout io.Writer) error {
 			return errors.New("unknown peer command")
 		}
 	case "message":
+		if sub == "listen" {
+			return listenMessages(ctx, *socket, *jsonOut, out, errout)
+		}
 		if sub != "send" && sub != "request" {
 			return errors.New("unknown message command")
 		}
@@ -302,9 +318,7 @@ func call(ctx context.Context, path string, c command) (reply, error) {
 	if e != nil {
 		return res, e
 	}
-	tr := &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-		return (&net.Dialer{}).DialContext(ctx, "unix", path)
-	}}
+	tr := controlTransport(path)
 	defer tr.CloseIdleConnections()
 	client := &http.Client{Transport: tr, Timeout: 12 * time.Second}
 	r, e := http.NewRequestWithContext(ctx, "POST", "http://meshlink/v1/command", bytes.NewReader(b))
@@ -346,4 +360,61 @@ func orOff(v string) string {
 		return "off"
 	}
 	return v
+}
+
+func controlTransport(path string) *http.Transport {
+	return &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+		return (&net.Dialer{}).DialContext(ctx, "unix", path)
+	}}
+}
+
+func listenMessages(ctx context.Context, path string, jsonOut bool, out, errout io.Writer) error {
+	tr := controlTransport(path)
+	defer tr.CloseIdleConnections()
+	r, e := http.NewRequestWithContext(ctx, "GET", "http://meshlink/v1/listen", nil)
+	if e != nil {
+		return e
+	}
+	res, e := (&http.Client{Transport: tr}).Do(r)
+	if e != nil {
+		return fmt.Errorf("control request (is node running at %s?): %w", path, e)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		return fmt.Errorf("control HTTP status %d", res.StatusCode)
+	}
+	fmt.Fprintln(errout, "listening for messages; press Ctrl+C to stop")
+	dec := json.NewDecoder(res.Body)
+	enc := json.NewEncoder(out)
+	for {
+		var msg inboxMessage
+		if e = dec.Decode(&msg); e != nil {
+			if ctx.Err() != nil {
+				return nil
+			}
+			if errors.Is(e, io.EOF) || errors.Is(e, io.ErrUnexpectedEOF) {
+				fmt.Fprintln(errout, "node stopped")
+				return nil
+			}
+			return e
+		}
+		if jsonOut {
+			enc.Encode(msg)
+		} else {
+			fmt.Fprintf(out, "%s %s: %s\n", msg.Time.Format("15:04:05"), msg.From, printable(msg.Payload))
+		}
+	}
+}
+
+func printable(p []byte) string {
+	s := string(p)
+	if !utf8.ValidString(s) {
+		return strconv.Quote(s)
+	}
+	for _, r := range s {
+		if unicode.IsControl(r) && r != '\t' {
+			return strconv.Quote(s)
+		}
+	}
+	return s
 }

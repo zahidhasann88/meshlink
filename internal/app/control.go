@@ -44,7 +44,7 @@ func strictDecode(r io.Reader, v any) error {
 	return nil
 }
 
-func control(n *m.Node, path string, stop func()) (*http.Server, net.Listener, error) {
+func control(n *m.Node, path string, stop func(), box *inbox, done <-chan struct{}) (*http.Server, net.Listener, error) {
 	if !filepath.IsAbs(path) {
 		return nil, nil, errors.New("control socket path must be absolute")
 	}
@@ -71,6 +71,10 @@ func control(n *m.Node, path string, stop func()) (*http.Server, net.Listener, e
 	}
 	slots := make(chan struct{}, 8)
 	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "GET" && r.URL.Path == "/v1/listen" {
+			box.serve(w, r, done)
+			return
+		}
 		if r.Method != "POST" || r.URL.Path != "/v1/command" {
 			http.NotFound(w, r)
 			return

@@ -6,6 +6,25 @@ contain breaking changes.
 
 ## [Unreleased]
 
+## [v0.3.0] - 2026-10-26
+
+### Added
+
+- Keepalive: protocol v2 adds `ping`/`pong`, so quiet connections stay open and dead
+  peers are detected within `idle_timeout`. Peers negotiate the version during the TLS
+  handshake, so v0.3 nodes still work with v0.1/v0.2 nodes (without keepalive).
+- `PeerInfo.Protocol` and `PeerInfo.RTT` (round-trip time from keepalive pings).
+- `meshlink message listen [--json]` prints one-way messages a running node receives.
+- `meshlink.IsRequest(ctx)` tells a handler whether it is answering a request.
+- Signed registry entries: each peer signs its own registration and removal, and
+  lookups verify the signature. `Node.Unregister` and `PeerRecord.Verify` added.
+
+### Changed
+
+- **Breaking:** the registry protocol requires signatures. Upgrade registries and nodes
+  that use them together. `Discovery.Unregister` now takes a signed `PeerRecord`
+  instead of an ID.
+
 ## [v0.2.0] - 2026-10-26
 
 ### Added
@@ -57,6 +76,7 @@ First public release.
 - Messages are not stored or resent after a disconnect
 - Not security-audited
 
-[Unreleased]: https://github.com/zahidhasann88/meshlink/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/zahidhasann88/meshlink/compare/v0.3.0...HEAD
+[v0.3.0]: https://github.com/zahidhasann88/meshlink/compare/v0.2.0...v0.3.0
 [v0.2.0]: https://github.com/zahidhasann88/meshlink/compare/v0.1.0...v0.2.0
 [v0.1.0]: https://github.com/zahidhasann88/meshlink/releases/tag/v0.1.0

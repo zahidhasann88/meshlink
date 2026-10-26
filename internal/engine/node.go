@@ -31,6 +31,13 @@ var (
 
 type Handler func(ctx context.Context, peer string, payload []byte) ([]byte, error)
 
+type requestKey struct{}
+
+func IsRequest(ctx context.Context) bool {
+	v, _ := ctx.Value(requestKey{}).(bool)
+	return v
+}
+
 type Event struct {
 	PeerID string
 	State  string
@@ -38,16 +45,18 @@ type Event struct {
 }
 
 type PeerInfo struct {
-	ID            string    `json:"id"`
-	Address       string    `json:"address"`
-	State         string    `json:"state"`
-	ConnectedAt   time.Time `json:"connected_at"`
-	LastRead      time.Time `json:"last_read"`
-	LastWrite     time.Time `json:"last_write"`
-	BytesSent     uint64    `json:"bytes_sent"`
-	BytesReceived uint64    `json:"bytes_received"`
-	QueueDepth    int       `json:"queue_depth"`
-	Relay         string    `json:"relay,omitempty"`
+	ID            string        `json:"id"`
+	Address       string        `json:"address"`
+	State         string        `json:"state"`
+	ConnectedAt   time.Time     `json:"connected_at"`
+	LastRead      time.Time     `json:"last_read"`
+	LastWrite     time.Time     `json:"last_write"`
+	BytesSent     uint64        `json:"bytes_sent"`
+	BytesReceived uint64        `json:"bytes_received"`
+	QueueDepth    int           `json:"queue_depth"`
+	Relay         string        `json:"relay,omitempty"`
+	Protocol      int           `json:"protocol"`
+	RTT           time.Duration `json:"rtt_ns,omitempty"`
 }
 
 type Diagnostics struct {
@@ -98,6 +107,11 @@ type session struct {
 	since               time.Time
 	sent, received      atomic.Uint64
 	lastRead, lastWrite atomic.Int64
+	version             int
+	rtt                 atomic.Int64
+	pingMu              sync.Mutex
+	pingID              string
+	pingAt              time.Time
 }
 
 type Node struct {
@@ -399,10 +413,18 @@ func (n *Node) establish(ctx context.Context, raw net.Conn, expected string, out
 		n.mu.Unlock()
 		return nil, ErrDuplicate
 	}
+	version := 1
+	if v, ok := c.(interface{ ProtocolVersion() int }); ok && v.ProtocolVersion() > 1 {
+		version = min(v.ProtocolVersion(), protocol.Version)
+	}
 	sessionCtx, sessionCancel := context.WithCancel(n.ctx)
-	s := &session{n: n, id: id, conn: c, outbound: out, relay: via, ctx: sessionCtx, cancel: sessionCancel, queue: make(chan job, n.cfg.QueueCapacity), since: time.Now()}
+	s := &session{n: n, id: id, conn: c, outbound: out, relay: via, version: version, ctx: sessionCtx, cancel: sessionCancel, queue: make(chan job, n.cfg.QueueCapacity), since: time.Now()}
 	n.peers[id] = s
 	n.wg.Add(2)
+	if version >= 2 {
+		n.wg.Add(1)
+		go s.keepalive()
+	}
 	n.emit(id, "connected")
 	n.mu.Unlock()
 	if old != nil {
@@ -508,7 +530,7 @@ func (n *Node) Send(ctx context.Context, id string, payload []byte) error {
 	if e != nil {
 		return e
 	}
-	return s.send(ctx, protocol.Message{Version: 1, Type: "data", ID: mid, Payload: payload})
+	return s.send(ctx, protocol.Message{Version: s.version, Type: "data", ID: mid, Payload: payload})
 }
 func (s *session) send(ctx context.Context, m protocol.Message) error {
 	if e := ctx.Err(); e != nil {
@@ -585,9 +607,20 @@ func (s *session) reader() {
 		s.n.received.Add(size)
 		s.lastRead.Store(time.Now().UnixNano())
 		m, e := protocol.Decode(b)
+		if e == nil && m.Version != s.version {
+			e = fmt.Errorf("message version %d on a version %d connection", m.Version, s.version)
+		}
 		if e != nil {
 			s.n.note(e)
 			return
+		}
+		switch m.Type {
+		case "ping":
+			s.enqueue(protocol.Message{Version: s.version, Type: "pong", ID: m.ID})
+			continue
+		case "pong":
+			s.pong(m.ID)
+			continue
 		}
 		if m.Type == "response" || m.Type == "error" {
 			s.n.mu.Lock()
@@ -626,7 +659,7 @@ func (n *Node) worker() {
 			n.mu.Lock()
 			h := n.handler
 			n.mu.Unlock()
-			ctx, cancel := context.WithTimeout(d.s.ctx, n.cfg.RequestTimeout)
+			ctx, cancel := context.WithTimeout(context.WithValue(d.s.ctx, requestKey{}, d.m.Type == "request"), n.cfg.RequestTimeout)
 			var payload []byte
 			var e error
 			if h == nil {
@@ -635,7 +668,7 @@ func (n *Node) worker() {
 				payload, e = callHandler(h, ctx, d.s.id, d.m.Payload)
 			}
 			if d.m.Type == "request" {
-				m := protocol.Message{Version: 1, Type: "response", ID: d.m.ID, Payload: payload}
+				m := protocol.Message{Version: d.s.version, Type: "response", ID: d.m.ID, Payload: payload}
 				if e != nil {
 					m.Type = "error"
 					m.Payload = nil
@@ -682,7 +715,7 @@ func (n *Node) Request(ctx context.Context, id string, payload []byte) ([]byte, 
 	n.pending[mid] = p
 	n.mu.Unlock()
 	defer func() { n.mu.Lock(); delete(n.pending, mid); n.mu.Unlock() }()
-	if e = s.send(ctx, protocol.Message{Version: 1, Type: "request", ID: mid, Payload: payload}); e != nil {
+	if e = s.send(ctx, protocol.Message{Version: s.version, Type: "request", ID: mid, Payload: payload}); e != nil {
 		if errors.Is(e, context.DeadlineExceeded) {
 			n.timeouts.Add(1)
 		}
@@ -720,7 +753,7 @@ func (n *Node) Peers() []PeerInfo { n.mu.Lock(); defer n.mu.Unlock(); return n.p
 func (n *Node) peersLocked() []PeerInfo {
 	out := make([]PeerInfo, 0, len(n.peers))
 	for _, s := range n.peers {
-		out = append(out, PeerInfo{ID: s.id, Address: s.conn.RemoteAddr().String(), State: "connected", ConnectedAt: s.since, LastRead: timeValue(s.lastRead.Load()), LastWrite: timeValue(s.lastWrite.Load()), BytesSent: s.sent.Load(), BytesReceived: s.received.Load(), QueueDepth: len(s.queue), Relay: s.relay})
+		out = append(out, PeerInfo{ID: s.id, Address: s.conn.RemoteAddr().String(), State: "connected", ConnectedAt: s.since, LastRead: timeValue(s.lastRead.Load()), LastWrite: timeValue(s.lastWrite.Load()), BytesSent: s.sent.Load(), BytesReceived: s.received.Load(), QueueDepth: len(s.queue), Relay: s.relay, Protocol: s.version, RTT: time.Duration(s.rtt.Load())})
 	}
 	return out
 }
@@ -742,4 +775,45 @@ func (n *Node) maintainedLocked() []string {
 	}
 	slices.Sort(out)
 	return out
+}
+
+func (s *session) enqueue(m protocol.Message) {
+	b, e := protocol.Encode(m, s.n.cfg.MaxFrameSize)
+	if e != nil {
+		return
+	}
+	select {
+	case s.queue <- job{s.ctx, b, make(chan error, 1)}:
+	default:
+	}
+}
+
+func (s *session) pong(id string) {
+	s.pingMu.Lock()
+	defer s.pingMu.Unlock()
+	if id == s.pingID {
+		s.rtt.Store(int64(time.Since(s.pingAt)))
+		s.pingID = ""
+	}
+}
+
+func (s *session) keepalive() {
+	defer s.n.wg.Done()
+	t := time.NewTicker(s.n.cfg.IdleTimeout / 3)
+	defer t.Stop()
+	for {
+		select {
+		case <-s.ctx.Done():
+			return
+		case <-t.C:
+			id, e := newID()
+			if e != nil {
+				return
+			}
+			s.pingMu.Lock()
+			s.pingID, s.pingAt = id, time.Now()
+			s.pingMu.Unlock()
+			s.enqueue(protocol.Message{Version: s.version, Type: "ping", ID: id})
+		}
+	}
 }

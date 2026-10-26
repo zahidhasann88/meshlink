@@ -3,6 +3,8 @@
 package meshlink
 
 import (
+	"context"
+
 	"github.com/zahidhasann88/meshlink/internal/discovery"
 	"github.com/zahidhasann88/meshlink/internal/engine"
 	"github.com/zahidhasann88/meshlink/internal/identity"
@@ -83,7 +85,8 @@ var (
 // connections are still authenticated against AllowedPeers.
 type Discovery = discovery.Discovery
 
-// PeerRecord is a registered peer address with its lease expiry.
+// PeerRecord is a signed peer registration. Verify checks that the peer
+// itself signed it.
 type PeerRecord = discovery.Record
 
 // MemoryRegistry is an in-process Discovery implementation with leases.
@@ -94,6 +97,10 @@ type RegistryClient = discovery.Client
 
 // ErrRegistrationNotFound means no unexpired registration exists for a peer.
 var ErrRegistrationNotFound = discovery.ErrNotFound
+
+// IsRequest reports whether a Handler call is for a request (true) or a
+// one-way message (false).
+func IsRequest(ctx context.Context) bool { return engine.IsRequest(ctx) }
 
 // NewNode validates the configuration and loads or generates the identity.
 // It does not open any sockets; call Start for that.

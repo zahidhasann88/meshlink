@@ -41,7 +41,7 @@ Anything you leave out uses its default. A full example is in
 | `max_pending` | 256 | Requests waiting for a reply (1–65536) |
 | `connect_timeout` | 5s | Time limit for connecting and the TLS handshake |
 | `write_timeout` | 5s | Time limit for writing one message |
-| `idle_timeout` | 2m | A connection with no traffic for this long is closed |
+| `idle_timeout` | 2m | A connection that receives nothing for this long is closed. Keepalive pings every `idle_timeout / 3` |
 | `request_timeout` | 30s | Maximum wait for a reply, and maximum handler run time |
 
 Notes:
@@ -51,8 +51,9 @@ Notes:
 - Every timeout must be between 1ms and 24h.
 - Messages are base64-encoded on the wire, so the largest payload you can send is
   about 75% of `max_frame_size`.
-- There is no automatic keep-alive. If you need long quiet connections, raise
-  `idle_timeout` or send messages now and then.
+- Keepalive works when both peers run v0.3.0 or newer. Quiet connections then stay
+  open, and a peer that disappears is detected within `idle_timeout`. Connections to
+  older peers still close after `idle_timeout` without traffic.
 - Go-only fields: `Identity` (use instead of `KeyPath`), `Transport`, `Logger`.
 
 ## Automatic connections

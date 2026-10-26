@@ -10,7 +10,10 @@ import (
 	"io"
 )
 
-const Version = 1
+const (
+	Version    = 2
+	MinVersion = 1
+)
 const DefaultMaxFrame = 1 << 20
 
 var ErrFrameTooLarge = errors.New("frame exceeds configured limit")
@@ -24,7 +27,7 @@ type Message struct {
 }
 
 func (m Message) Validate() error {
-	if m.Version != Version {
+	if m.Version < MinVersion || m.Version > Version {
 		return errors.New("unsupported protocol version")
 	}
 	b, e := hex.DecodeString(m.ID)
@@ -39,6 +42,13 @@ func (m Message) Validate() error {
 	case "error":
 		if m.Error != "handler_failed" || len(m.Payload) != 0 {
 			return errors.New("invalid error response")
+		}
+	case "ping", "pong":
+		if m.Version < 2 {
+			return errors.New("unknown message type")
+		}
+		if m.Error != "" || len(m.Payload) != 0 {
+			return errors.New("ping and pong carry no payload")
 		}
 	default:
 		return errors.New("unknown message type")

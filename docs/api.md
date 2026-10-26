@@ -93,6 +93,9 @@ node.Handle(func(ctx context.Context, from string, msg []byte) ([]byte, error) {
 })
 ```
 
+Use `meshlink.IsRequest(ctx)` inside the handler to tell a request (which needs a
+reply) from a one-way message.
+
 The handler can run many times at once, so it must be safe for concurrent use.
 It must also stop when `ctx` is cancelled. Returned errors and panics are sent to
 the caller as a generic failure, and the error text is never shared.
@@ -124,6 +127,10 @@ d := node.Diagnostics()            // peers, bytes, timeouts, last error...
 The events channel holds up to 128 items. If you don't read it, newer events are
 dropped, and `Diagnostics().DroppedEvents` counts them.
 
+Each `PeerInfo` includes `Protocol` (1 or 2) and, on protocol 2, `RTT`: the round-trip
+time of the last keepalive ping. On loopback it can read 0, because the RTT is below the
+OS clock's resolution.
+
 ## Errors
 
 Check errors with `errors.Is(err, meshlink.ErrX)`:
@@ -150,6 +157,9 @@ node.DiscoverAndConnect(ctx, reg, peerID)
 ```
 
 - `KeepRegistered` renews every lease/3 and removes the entry when stopped or on `Close`.
+- Entries are signed with the node's key, and `node.Unregister(ctx, reg)` sends a signed
+  removal. Lookups check the signature, so a registry can't send you to an address the
+  peer didn't sign. `PeerRecord.Verify()` does the same check for your own code.
 - Or set `Config.Discovery` (Go) or `Config.Registry` (file-based token). Then
   `KnownPeers` entries without an `Address` are looked up automatically.
 - Use `NewMemoryRegistry(capacity)` for an in-process registry.

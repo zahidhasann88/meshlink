@@ -19,7 +19,11 @@ import (
 
 var ErrAuthentication = errors.New("peer authentication failed")
 
-type Transport struct{}
+var DefaultProtocols = []string{"meshlink/2", "meshlink/1"}
+
+type Transport struct {
+	Protocols []string
+}
 
 func (Transport) Name() string { return "tcp+tls" }
 func (Transport) Listen(ctx context.Context, a string) (net.Listener, error) {
@@ -31,11 +35,14 @@ func (Transport) Dial(ctx context.Context, a string) (net.Conn, error) {
 
 type conn struct {
 	*tls.Conn
-	id string
+	id      string
+	version int
 }
 
+func (c *conn) ProtocolVersion() int { return c.version }
+
 func (c *conn) PeerID() string { return c.id }
-func (Transport) Authenticate(ctx context.Context, raw net.Conn, c transport.Credentials, expected string) (transport.Conn, error) {
+func (tr Transport) Authenticate(ctx context.Context, raw net.Conn, c transport.Credentials, expected string) (transport.Conn, error) {
 	if !c.Identity.Valid() {
 		return nil, fmt.Errorf("%w: invalid local identity", ErrAuthentication)
 	}
@@ -50,13 +57,13 @@ func (Transport) Authenticate(ctx context.Context, raw net.Conn, c transport.Cre
 		return nil, e
 	}
 	peer := ""
-	cfg := &tls.Config{MinVersion: tls.VersionTLS13, MaxVersion: tls.VersionTLS13, NextProtos: []string{"meshlink/1"}, Certificates: []tls.Certificate{{Certificate: [][]byte{der}, PrivateKey: c.Identity.PrivateKey()}}, SessionTicketsDisabled: true}
+	cfg := &tls.Config{MinVersion: tls.VersionTLS13, MaxVersion: tls.VersionTLS13, NextProtos: tr.protocols(), Certificates: []tls.Certificate{{Certificate: [][]byte{der}, PrivateKey: c.Identity.PrivateKey()}}, SessionTicketsDisabled: true}
 	// Public-key pinning replaces WebPKI: VerifyConnection checks the peer key
 	// against expected and the allowlist (hence InsecureSkipVerify below).
 	// Removing this callback would disable authentication.
 	cfg.VerifyConnection = func(s tls.ConnectionState) error {
 		fail := func(reason string) error { return fmt.Errorf("%w: %s", ErrAuthentication, reason) }
-		if s.NegotiatedProtocol != "meshlink/1" || len(s.PeerCertificates) != 1 {
+		if version(s.NegotiatedProtocol) == 0 || len(s.PeerCertificates) != 1 {
 			return fail("ALPN or certificate count")
 		}
 		cert := s.PeerCertificates[0]
@@ -116,5 +123,22 @@ func (Transport) Authenticate(ctx context.Context, raw net.Conn, c transport.Cre
 		}
 		return nil, fmt.Errorf("%w: TLS handshake: %w", ErrAuthentication, e)
 	}
-	return &conn{t, peer}, nil
+	return &conn{t, peer, version(t.ConnectionState().NegotiatedProtocol)}, nil
+}
+
+func (tr Transport) protocols() []string {
+	if len(tr.Protocols) == 0 {
+		return DefaultProtocols
+	}
+	return tr.Protocols
+}
+
+func version(alpn string) int {
+	switch alpn {
+	case "meshlink/2":
+		return 2
+	case "meshlink/1":
+		return 1
+	}
+	return 0
 }

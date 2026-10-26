@@ -10,7 +10,7 @@ Each node has its own cryptographic identity. Nodes only talk to peers you have
 explicitly allowed, and every connection is encrypted with TLS 1.3. You can use
 MeshLink as a Go library or through the `meshlink` command-line tool.
 
-> **Status:** early development (v0.1.0). It works and is well tested, but it has not
+> **Status:** early development (v0.2.0). It works and is well tested, but it has not
 > had a security audit. Don't rely on it for anything critical yet.
 
 ## Features

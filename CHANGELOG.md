@@ -6,6 +6,8 @@ contain breaking changes.
 
 ## [Unreleased]
 
+## [v0.2.0] - 2026-10-26
+
 ### Added
 
 - Relay: `meshlink-relay` server and `relay` config. Nodes behind NAT stay reachable
@@ -21,6 +23,17 @@ contain breaking changes.
 ### Changed
 
 - Now depends on `golang.org/x/sys` for Windows file permissions.
+- **Upgrading on Windows:** key files created by v0.1.0 may now be rejected because
+  other users can read them. Fix each one with
+  `icacls node.key /inheritance:r /grant:r "%USERNAME%:F"` (the error shows the exact command).
+- `known_peers` entries no longer need an `address` when a registry or relay is configured.
+
+### Known limitations
+
+- No NAT hole punching: peers behind NAT need a relay, port forwarding or a VPN
+- The relay sees metadata (which peers talk, when, and how much), not message contents
+- Registry and relay keep state in memory only
+- Not security-audited
 
 ## [v0.1.0] - 2026-10-26
 
@@ -44,5 +57,6 @@ First public release.
 - Messages are not stored or resent after a disconnect
 - Not security-audited
 
-[Unreleased]: https://github.com/zahidhasann88/meshlink/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/zahidhasann88/meshlink/compare/v0.2.0...HEAD
+[v0.2.0]: https://github.com/zahidhasann88/meshlink/compare/v0.1.0...v0.2.0
 [v0.1.0]: https://github.com/zahidhasann88/meshlink/releases/tag/v0.1.0

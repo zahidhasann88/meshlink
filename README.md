@@ -10,6 +10,8 @@ Each node has its own cryptographic identity. Nodes only talk to peers you have
 explicitly allowed, and every connection is encrypted with TLS 1.3. You can use
 MeshLink as a Go library or through the `meshlink` command-line tool.
 
+![Two MeshLink peers connecting and exchanging a request](docs/demo.gif)
+
 > **Status:** early development (v0.2.0). It works and is well tested, but it has not
 > had a security audit. Don't rely on it for anything critical yet.
 
@@ -186,8 +188,12 @@ func main() {
 }
 ```
 
-Run the full example with `go run ./examples/messaging`. See the
-[Go API guide](docs/api.md) for everything else.
+Runnable examples:
+
+- `go run ./examples/messaging`: two peers and a request/reply
+- `go run ./examples/relay`: two peers that can only reach each other through a relay
+
+See the [Go API guide](docs/api.md) for everything else.
 
 ## Good to know
 
@@ -221,6 +227,7 @@ make check               # format, vet, tests, race detector, build (Linux/macOS
 ./scripts/check.ps1      # same checks on Windows
 make test-fuzz           # short fuzz runs
 make docker-smoke        # build the image and test 4 containers end to end
+bash scripts/demo.sh     # re-record docs/demo.gif (needs Docker)
 ```
 
 Found a security problem? Please see [SECURITY.md](SECURITY.md) instead of

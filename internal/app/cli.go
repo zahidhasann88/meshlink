@@ -269,7 +269,7 @@ func Run(ctx context.Context, args []string, out, errout io.Writer) error {
 	}
 	if res.Diagnostics != nil {
 		d := res.Diagnostics
-		fmt.Fprintf(out, "node %s\nstate: %s  transport: %s  address: %s\npeers: %d  sent: %d bytes  received: %d bytes  uptime: %s\n", d.ID, d.State, d.Transport, d.Address, len(d.Peers), d.BytesSent, d.BytesReceived, d.Uptime)
+		fmt.Fprintf(out, "node %s\nstate: %s  transport: %s  address: %s\npeers: %d  sent: %d bytes  received: %d bytes  uptime: %s\n", d.ID, d.State, d.Transport, d.Address, len(d.Peers), d.BytesSent, d.BytesReceived, d.Uptime.Round(time.Millisecond))
 		fmt.Fprintf(out, "maintained peers: %d  reconnect attempts: %d\n", len(d.MaintainedPeers), d.ReconnectAttempts)
 		if d.Registration != "" || d.Relay != "" {
 			fmt.Fprintf(out, "registry: %s  relay: %s\n", orOff(d.Registration), orOff(d.Relay))

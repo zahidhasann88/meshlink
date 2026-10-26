@@ -171,7 +171,8 @@ node, _ := meshlink.NewNode(meshlink.Config{ /* ... */ Relay: via})
   `"reserved"`, `"connecting"` or `"rejected"`.
 
 Run a relay in Go with `meshlink.NewRelayServer(meshlink.RelayServerConfig{...})`,
-or use the `meshlink-relay` command.
+or use the `meshlink-relay` command. [`examples/relay`](../examples/relay/main.go)
+shows the whole setup in one program.
 
 ## Custom transports
 

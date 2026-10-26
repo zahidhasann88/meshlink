@@ -264,6 +264,10 @@ func Run(ctx context.Context, args []string, out, errout io.Writer) error {
 	if res.Diagnostics != nil {
 		d := res.Diagnostics
 		fmt.Fprintf(out, "node %s\nstate: %s  transport: %s  address: %s\npeers: %d  sent: %d bytes  received: %d bytes  uptime: %s\n", d.ID, d.State, d.Transport, d.Address, len(d.Peers), d.BytesSent, d.BytesReceived, d.Uptime)
+		fmt.Fprintf(out, "maintained peers: %d  reconnect attempts: %d\n", len(d.MaintainedPeers), d.ReconnectAttempts)
+		if d.LastError != "" {
+			fmt.Fprintf(out, "last error: %s\n", d.LastError)
+		}
 		return nil
 	}
 	if c.Op == "peers" {

@@ -28,6 +28,8 @@ Anything you leave out uses its default. A full example is in
 | `key_path` | none | Path to your private key file (required by the CLI) |
 | `listen_address` | `127.0.0.1:0` | Address to listen on. Port `0` means any free port |
 | `allowed_peers` | `[]` | Peer IDs allowed to connect. **Empty means nobody** |
+| `known_peers` | `[]` | Peers to connect to automatically and reconnect after drops (see below) |
+| `reconnect` | see below | Retry policy for `known_peers` |
 | `max_peers` | 64 | Maximum connections, including ones still connecting (1–65536) |
 | `max_handshakes` | 8 | Maximum connections being set up at the same time (1–1024) |
 | `max_frame_size` | 1048576 (1 MiB) | Largest message on the wire, in bytes (128 B–16 MiB) |
@@ -50,6 +52,35 @@ Notes:
 - There is no automatic keep-alive. If you need long quiet connections, raise
   `idle_timeout` or send messages now and then.
 - Go-only fields: `Identity` (use instead of `KeyPath`), `Transport`, `Logger`.
+
+## Automatic connections
+
+List peers in `known_peers` and the node connects to them on start. If a
+connection drops, or the peer isn't running yet, the node keeps retrying.
+
+```json
+{
+  "allowed_peers": ["<B's peer ID>"],
+  "known_peers": [{ "id": "<B's peer ID>", "address": "127.0.0.1:7002" }],
+  "reconnect": { "attempts": 10, "initial_delay": 500000000, "max_delay": 30000000000 }
+}
+```
+
+| `reconnect` field | Default | Meaning |
+|---|---|---|
+| `attempts` | 10 | Consecutive failures before giving up (1–100) |
+| `initial_delay` | 0.5s | First wait between attempts. It doubles after each failure… |
+| `max_delay` | 30s | …up to this limit. Waits are randomized so peers don't retry in sync |
+
+Rules:
+
+- Each known peer must also be in `allowed_peers`.
+- Two peers can list each other. Only one connection is kept.
+- A connection that drops within `max(max_delay, 1s)` of connecting counts as a
+  failure. This stops tight retry loops when the other side doesn't allow you.
+- Authentication failures stop retrying immediately.
+- When the node gives up, `meshlink diagnostics` shows the reason under `last error`.
+- Messages that were in flight during a drop are **not** resent.
 
 ## CLI: environment variables and flags
 

@@ -15,6 +15,7 @@ MeshLink as a Go library or through the `meshlink` command-line tool.
 
 - **Secure by default:** mutual TLS 1.3 with Ed25519 keys. Unknown peers are rejected.
 - **Messaging:** one-way messages, broadcast, and request/response with timeouts.
+- **Auto-reconnect:** keeps known peers connected, with backoff, across drops and restarts.
 - **Safe limits:** bounded queues, connection limits and message size limits.
 - **Optional discovery:** a small registry server to look up peer addresses.
 - **Diagnostics:** connected peers, bytes sent and received, errors and more.
@@ -97,6 +98,10 @@ meshlink peer list --socket "$PWD/local/a.sock"
 meshlink message request --socket "$PWD/local/a.sock" "$B" "hello"   # prints: hello
 meshlink diagnostics --socket "$PWD/local/a.sock"
 ```
+
+Tip: to skip `peer connect`, add `"known_peers": [{"id": "<B's ID>", "address": "127.0.0.1:7002"}]`
+to `a.json`. Node A then connects by itself, and reconnects if B restarts.
+See [configuration](docs/configuration.md#automatic-connections).
 
 ### 4. Stop the nodes
 
@@ -182,8 +187,7 @@ Run the full example with `go run ./examples/messaging`. See the
   Use `Request` when you need a reply.
 - **Binding `127.0.0.1`** keeps a node local to your machine. **`0.0.0.0`** opens
   it on your network, so use a firewall.
-- **Not built yet:** relay servers, NAT traversal, automatic reconnect, and
-  transports other than TCP.
+- **Not built yet:** relay servers, NAT traversal, and transports other than TCP.
 
 ## Documentation
 
@@ -192,7 +196,7 @@ Run the full example with `go run ./examples/messaging`. See the
 | [Go API](docs/api.md) | Using MeshLink from Go code |
 | [Configuration](docs/configuration.md) | Every setting, defaults, env variables |
 | [Deployment](docs/deployment.md) | Registry server, Docker, running in production |
-| [Security](docs/security.md) | How identity and trust work, and known limits |
+| [Security](SECURITY.md) | Reporting issues, how identity and trust work, known limits |
 | [Architecture](docs/architecture.md) | How the engine works inside, custom transports |
 | [Protocol](docs/protocol.md) | Wire format, for building compatible clients |
 

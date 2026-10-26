@@ -51,6 +51,9 @@ func (Transport) Authenticate(ctx context.Context, raw net.Conn, c transport.Cre
 	}
 	peer := ""
 	cfg := &tls.Config{MinVersion: tls.VersionTLS13, MaxVersion: tls.VersionTLS13, NextProtos: []string{"meshlink/1"}, Certificates: []tls.Certificate{{Certificate: [][]byte{der}, PrivateKey: c.Identity.PrivateKey()}}, SessionTicketsDisabled: true}
+	// Public-key pinning replaces WebPKI: VerifyConnection checks the peer key
+	// against expected and the allowlist (hence InsecureSkipVerify below).
+	// Removing this callback would disable authentication.
 	cfg.VerifyConnection = func(s tls.ConnectionState) error {
 		fail := func(reason string) error { return fmt.Errorf("%w: %s", ErrAuthentication, reason) }
 		if s.NegotiatedProtocol != "meshlink/1" || len(s.PeerCertificates) != 1 {

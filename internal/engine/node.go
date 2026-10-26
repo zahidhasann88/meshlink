@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -28,11 +29,13 @@ var (
 )
 
 type Handler func(ctx context.Context, peer string, payload []byte) ([]byte, error)
+
 type Event struct {
 	PeerID string
 	State  string
 	Time   time.Time
 }
+
 type PeerInfo struct {
 	ID            string    `json:"id"`
 	Address       string    `json:"address"`
@@ -44,6 +47,7 @@ type PeerInfo struct {
 	BytesReceived uint64    `json:"bytes_received"`
 	QueueDepth    int       `json:"queue_depth"`
 }
+
 type Diagnostics struct {
 	ID                  string        `json:"id"`
 	State               string        `json:"state"`
@@ -57,6 +61,7 @@ type Diagnostics struct {
 	ReconnectAttempts   uint64        `json:"reconnect_attempts"`
 	RejectedConnections uint64        `json:"rejected_connections"`
 	DroppedEvents       uint64        `json:"dropped_events"`
+	MaintainedPeers     []string      `json:"maintained_peers,omitempty"`
 	LastError           string        `json:"last_error,omitempty"`
 }
 type result struct {
@@ -103,6 +108,7 @@ type Node struct {
 	peers                                                map[string]*session
 	raw                                                  map[net.Conn]struct{}
 	pending                                              map[string]pending
+	maintained                                           map[string]*maintainer
 	handler                                              Handler
 	lastError                                            string
 	slots, handshakes                                    chan struct{}
@@ -139,13 +145,17 @@ func NewNode(c Config) (*Node, error) {
 		allowed[id] = true
 	}
 	c.AllowedPeers = append([]string(nil), c.AllowedPeers...)
-	return &Node{cfg: c, creds: transport.Credentials{Identity: c.Identity, AllowedPeers: allowed}, state: "new", peers: map[string]*session{}, raw: map[net.Conn]struct{}{}, pending: map[string]pending{}, slots: make(chan struct{}, c.MaxPeers), handshakes: make(chan struct{}, c.MaxHandshakes), work: make(chan delivery, c.HandlerQueue), events: make(chan Event, 128), done: make(chan struct{})}, nil
+	return &Node{cfg: c, creds: transport.Credentials{Identity: c.Identity, AllowedPeers: allowed}, state: "new", peers: map[string]*session{}, raw: map[net.Conn]struct{}{}, pending: map[string]pending{}, maintained: map[string]*maintainer{}, slots: make(chan struct{}, c.MaxPeers), handshakes: make(chan struct{}, c.MaxHandshakes), work: make(chan delivery, c.HandlerQueue), events: make(chan Event, 128), done: make(chan struct{})}, nil
 }
-func (n *Node) ID() string      { return n.cfg.Identity.ID() }
+
+func (n *Node) ID() string { return n.cfg.Identity.ID() }
+
 func (n *Node) Address() string { n.mu.Lock(); defer n.mu.Unlock(); return n.address }
 
 func (n *Node) Events() <-chan Event { return n.events }
-func (n *Node) Handle(h Handler)     { n.mu.Lock(); n.handler = h; n.mu.Unlock() }
+
+func (n *Node) Handle(h Handler) { n.mu.Lock(); n.handler = h; n.mu.Unlock() }
+
 func (n *Node) Start(ctx context.Context) error {
 	n.mu.Lock()
 	if n.state != "new" {
@@ -185,6 +195,11 @@ func (n *Node) Start(ctx context.Context) error {
 	go n.accept()
 	for i := 0; i < n.cfg.Workers; i++ {
 		go n.worker()
+	}
+	for _, p := range n.cfg.KnownPeers {
+		if _, e := n.maintainLocked(p.Address, p.ID, n.cfg.Reconnect); e != nil {
+			n.cfg.Logger.Warn("known peer not maintained", "peer", p.ID, "error", e)
+		}
 	}
 	context.AfterFunc(base, func() { n.Close() })
 	n.mu.Unlock()
@@ -258,17 +273,22 @@ func (n *Node) accept() {
 }
 
 func (n *Node) Connect(ctx context.Context, address, expected string) error {
+	_, e := n.connect(ctx, address, expected)
+	return e
+}
+
+func (n *Node) connect(ctx context.Context, address, expected string) (*session, error) {
 	if !identity.ValidID(expected) {
-		return errors.New("expected peer ID is required")
+		return nil, errors.New("expected peer ID is required")
 	}
 	if !n.creds.AllowedPeers[expected] {
-		return fmt.Errorf("%w: expected identity not authorized", tcp.ErrAuthentication)
+		return nil, fmt.Errorf("%w: expected identity not authorized", tcp.ErrAuthentication)
 	}
 	n.mu.Lock()
 	e := n.reserve()
 	if e != nil {
 		n.mu.Unlock()
-		return e
+		return nil, e
 	}
 	base := n.ctx
 	n.mu.Unlock()
@@ -282,7 +302,7 @@ func (n *Node) Connect(ctx context.Context, address, expected string) error {
 		<-n.handshakes
 		<-n.slots
 		n.note(e)
-		return fmt.Errorf("dial: %w", e)
+		return nil, fmt.Errorf("dial: %w", e)
 	}
 	n.mu.Lock()
 	if n.state != "running" {
@@ -290,16 +310,17 @@ func (n *Node) Connect(ctx context.Context, address, expected string) error {
 		raw.Close()
 		<-n.handshakes
 		<-n.slots
-		return ErrClosed
+		return nil, ErrClosed
 	}
 	n.raw[raw] = struct{}{}
 	n.mu.Unlock()
-	_, e = n.establish(dialCtx, raw, expected, true)
+	s, e := n.establish(dialCtx, raw, expected, true)
 	if e != nil {
 		n.note(e)
 	}
-	return e
+	return s, e
 }
+
 func (n *Node) establish(ctx context.Context, raw net.Conn, expected string, out bool) (*session, error) {
 	success := false
 	defer func() {
@@ -347,6 +368,7 @@ func (n *Node) establish(ctx context.Context, raw net.Conn, expected string, out
 	go s.reader()
 	return s, nil
 }
+
 func (n *Node) Close() error {
 	n.mu.Lock()
 	if n.state == "closed" || n.state == "closing" {
@@ -405,6 +427,7 @@ func (s *session) close() {
 		<-n.slots
 	})
 }
+
 func (n *Node) Disconnect(id string) error {
 	s, e := n.peer(id)
 	if e != nil {
@@ -589,6 +612,7 @@ func callHandler(h Handler, ctx context.Context, id string, b []byte) (out []byt
 	}()
 	return h(ctx, id, b)
 }
+
 func (n *Node) Request(ctx context.Context, id string, payload []byte) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, n.cfg.RequestTimeout)
 	defer cancel()
@@ -646,6 +670,7 @@ func timeValue(v int64) time.Time {
 	}
 	return time.Unix(0, v)
 }
+
 func (n *Node) Peers() []PeerInfo { n.mu.Lock(); defer n.mu.Unlock(); return n.peersLocked() }
 func (n *Node) peersLocked() []PeerInfo {
 	out := make([]PeerInfo, 0, len(n.peers))
@@ -654,6 +679,7 @@ func (n *Node) peersLocked() []PeerInfo {
 	}
 	return out
 }
+
 func (n *Node) Diagnostics() Diagnostics {
 	n.mu.Lock()
 	defer n.mu.Unlock()
@@ -661,5 +687,14 @@ func (n *Node) Diagnostics() Diagnostics {
 	if !n.started.IsZero() {
 		uptime = time.Since(n.started)
 	}
-	return Diagnostics{ID: n.ID(), State: n.state, Transport: n.cfg.Transport.Name(), Address: n.address, Uptime: uptime, Peers: n.peersLocked(), BytesSent: n.sent.Load(), BytesReceived: n.received.Load(), RequestTimeouts: n.timeouts.Load(), ReconnectAttempts: n.retries.Load(), RejectedConnections: n.rejected.Load(), DroppedEvents: n.dropped.Load(), LastError: n.lastError}
+	return Diagnostics{ID: n.ID(), State: n.state, Transport: n.cfg.Transport.Name(), Address: n.address, Uptime: uptime, Peers: n.peersLocked(), BytesSent: n.sent.Load(), BytesReceived: n.received.Load(), RequestTimeouts: n.timeouts.Load(), ReconnectAttempts: n.retries.Load(), RejectedConnections: n.rejected.Load(), DroppedEvents: n.dropped.Load(), MaintainedPeers: n.maintainedLocked(), LastError: n.lastError}
+}
+
+func (n *Node) maintainedLocked() []string {
+	out := make([]string, 0, len(n.maintained))
+	for id := range n.maintained {
+		out = append(out, id)
+	}
+	slices.Sort(out)
+	return out
 }

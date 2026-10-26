@@ -19,6 +19,8 @@ type Config struct {
 	KeyPath        string              `json:"key_path,omitempty"`
 	ListenAddress  string              `json:"listen_address"`
 	AllowedPeers   []string            `json:"allowed_peers"`
+	KnownPeers     []KnownPeer         `json:"known_peers,omitempty"`
+	Reconnect      RetryPolicy         `json:"reconnect"`
 	MaxPeers       int                 `json:"max_peers"`
 	MaxHandshakes  int                 `json:"max_handshakes"`
 	MaxFrameSize   int                 `json:"max_frame_size"`
@@ -34,14 +36,38 @@ type Config struct {
 	Logger         *slog.Logger        `json:"-"`
 }
 
+type KnownPeer struct {
+	ID      string `json:"id"`
+	Address string `json:"address"`
+}
+
 func (c Config) normalized() (Config, error) {
 	if c.ListenAddress == "" {
 		c.ListenAddress = "127.0.0.1:0"
 	}
+	allowed := make(map[string]bool, len(c.AllowedPeers))
 	for _, p := range c.AllowedPeers {
 		if !identity.ValidID(p) {
 			return c, fmt.Errorf("invalid allowed peer ID %q", p)
 		}
+		allowed[p] = true
+	}
+	seen := make(map[string]bool, len(c.KnownPeers))
+	for _, p := range c.KnownPeers {
+		switch {
+		case !allowed[p.ID]:
+			return c, fmt.Errorf("known peer %q must also be in allowed_peers", p.ID)
+		case p.Address == "":
+			return c, fmt.Errorf("known peer %q needs an address", p.ID)
+		case seen[p.ID]:
+			return c, fmt.Errorf("known peer %q is listed twice", p.ID)
+		}
+		seen[p.ID] = true
+	}
+	c.KnownPeers = append([]KnownPeer(nil), c.KnownPeers...)
+	c.Reconnect = c.Reconnect.withDefaults()
+	if e := c.Reconnect.validate(); e != nil {
+		return c, fmt.Errorf("reconnect: %w", e)
 	}
 	defaults := []struct {
 		p      *int

@@ -62,6 +62,26 @@ err := node.Connect(ctx, "127.0.0.1:7002", peerID)
   with exponential backoff. It stops right away on authentication errors.
 - `node.Disconnect(peerID)` closes a connection. `node.Peers()` lists connected peers.
 
+## Staying connected
+
+To keep a connection alive across drops and peer restarts, use `Maintain`:
+
+```go
+stop, err := node.Maintain("127.0.0.1:7002", peerID, meshlink.DefaultRetryPolicy)
+// ...
+stop() // stop reconnecting (the current connection stays open)
+```
+
+Or list peers in `Config.KnownPeers`, and they are maintained from `Start` on.
+
+- Reconnects use exponential backoff with random jitter.
+- After `Attempts` consecutive failures, or any authentication failure, it gives up.
+  `Diagnostics().LastError` says why.
+- A connection that closes right after opening counts as a failure. This usually
+  means the peer doesn't allow you.
+- `Diagnostics().MaintainedPeers` lists the peers still being maintained.
+- Messages lost during a drop are not resent.
+
 ## Sending messages
 
 **Handle incoming messages** with one handler per node:

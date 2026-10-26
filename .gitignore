@@ -1,0 +1,10 @@
+.tools/
+bin/
+*.key
+*.pem
+*.test
+local/
+deployments/compose/data/
+*.token
+*.zip
+build-docs.txt

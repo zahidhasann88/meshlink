@@ -1,0 +1,16 @@
+{
+  "key_path": "node.key",
+  "listen_address": "127.0.0.1:7001",
+  "allowed_peers": [],
+  "max_peers": 64,
+  "max_handshakes": 8,
+  "max_frame_size": 1048576,
+  "queue_capacity": 32,
+  "handler_queue": 64,
+  "workers": 4,
+  "max_pending": 256,
+  "connect_timeout": 5000000000,
+  "write_timeout": 5000000000,
+  "idle_timeout": 120000000000,
+  "request_timeout": 30000000000
+}

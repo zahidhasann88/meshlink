@@ -1,0 +1,29 @@
+name: Go checks
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - run: make check
+      - run: make test-fuzz
+      - run: make vuln
+  windows:
+    # Windows has no cgo toolchain by default, so the race detector runs on Linux only.
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - run: ./scripts/check.ps1
+        shell: pwsh

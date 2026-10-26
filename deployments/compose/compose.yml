@@ -1,0 +1,31 @@
+# Provision config, owner-only keys, and a registry token before starting.
+# Host networking is deliberately Linux-only: it keeps the registry on loopback
+# without pretending cleartext bearer tokens are safe on a shared bridge.
+services:
+  node:
+    build:
+      context: ../..
+      dockerfile: deployments/docker/Dockerfile
+    network_mode: host
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    volumes:
+      - ./data:/data:ro
+    tmpfs:
+      - /tmp:mode=1777
+    command: [node, start, --config, /data/node.json]
+    restart: unless-stopped
+  registry:
+    build:
+      context: ../..
+      dockerfile: deployments/docker/Dockerfile
+    network_mode: host
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    entrypoint: [meshlink-registry]
+    command: [--listen, "127.0.0.1:8081", --token-file, /data/registry.token]
+    volumes:
+      - ./data:/data:ro
+    restart: unless-stopped
